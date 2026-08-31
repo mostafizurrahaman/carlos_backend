@@ -1,0 +1,96 @@
+const catchAsync = require("../../../shared/catchasync");
+const sendResponse = require("../../../shared/sendResponse");
+const { LogsDashboardService } = require("./logsdashboard.service");
+
+const eventsCreationRate = catchAsync(async (req, res) => {
+    const result = await LogsDashboardService.eventsCreationRate(req.query);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Success",
+      data: result,
+    });
+  });
+
+  const getMostCreatedUsers = catchAsync(async (req, res) => {
+    const result = await LogsDashboardService.getMostCreatedUsers(req);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Success",
+      data: result,
+    });
+  });
+  
+  const getActivityLog = catchAsync(async (req, res) => {
+    const result = await LogsDashboardService.getActivityLog(req);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Success",
+      data: result,
+    });
+  });
+
+  const getAdminTaskCompted = catchAsync(async (req, res) => {
+    const result = await LogsDashboardService.getAdminTaskCompted(req);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Success",
+      data: result,
+    });
+  });
+
+  const getTaskCompleted = catchAsync(async (req, res) => {
+    const result = await LogsDashboardService.getTaskCompleted(req);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Success",
+      data: result,
+    });
+  });
+  
+  const getTaskInProgress = catchAsync(async (req, res) => {
+    const result = await LogsDashboardService.getTaskInProgress(req);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Success",
+      data: result,
+    });
+  });
+  
+  const getTaskSummary = catchAsync(async (req, res) => {
+    const result = await LogsDashboardService.getTaskSummary(req);
+    sendResponse(res, {
+      statusCode: 200,
+      success: true,
+      message: "Success",
+      data: result,
+    });
+  });
+
+
+   
+
+
+   
+   
+
+   
+
+
+  const LogsDashboardController = {
+    eventsCreationRate, 
+    getMostCreatedUsers,
+    getAdminTaskCompted,
+    getActivityLog,
+    getTaskCompleted,
+    getTaskInProgress,
+    getTaskSummary
+    
+  };
+  
+  module.exports = { LogsDashboardController };

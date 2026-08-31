@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Failed</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8d7da;
+            color: #721c24;
+            text-align: center;
+            padding: 50px;
+        }
+
+        h4 {
+            font-size: 1.8em;
+            margin-bottom: 20px;
+        }
+
+        p {
+            font-size: 1.2em;
+            margin-bottom: 30px;
+        }
+
+        a {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #f5c6cb;
+            color: #721c24;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        a:hover {
+            background-color: #f1b0b7;
+        }
+    </style>
+</head>
+
+<body>
+    <h4>$<%= message %>!</h4>
+    <% if (text) { %>
+        <p>
+            <%= text %>
+        </p>
+        <% } else { %>
+            <p>Your payment has not been approved. Please try again or use a different payment method.</p>
+            <% } %>
+                <p>If the problem persists, please contact support.</p>
+                <a href="#">Return to App, Please Wait..</a>
+</body>
+
+</html>

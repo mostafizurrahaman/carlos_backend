@@ -1,0 +1,130 @@
+const multer = require("multer");
+const fs = require("fs");
+const ApiError = require("../../errors/ApiError");
+
+const uploadFile = () => {
+  const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      let uploadPath = "";
+      if (file.fieldname === "profile_image") {
+        uploadPath = "uploads/images/profile";
+      } else if (file.fieldname === "image") {
+        uploadPath = "uploads/images/services";
+      } else if (file.fieldname === 'kycFront') {
+        uploadPath = 'uploads/images/kyc';
+      } else if (file.fieldname === 'kycBack') {
+        uploadPath = 'uploads/images/kyc';
+      } else if (file.fieldname === "licensePlateImage") {
+        uploadPath = "uploads/images/vehicle-licenses";
+      } else if (file.fieldname === "drivingLicenseImage") {
+        uploadPath = "uploads/images/driving-licenses";
+      } else if (file.fieldname === "vehicleInsuranceImage") {
+        uploadPath = "uploads/images/insurance";
+      } else if (file.fieldname === "vehicleRegistrationCardImage") {
+        uploadPath = "uploads/images/vehicle-registration";
+      } else if (file.fieldname === "vehicleFrontImage") {
+        uploadPath = "uploads/images/vehicle-image";
+      } else if (file.fieldname === "vehicleBackImage") {
+        uploadPath = "uploads/images/vehicle-image";
+      } else if (file.fieldname === "vehicleSideImage") {
+        uploadPath = "uploads/images/vehicle-image";
+      } else if (file.fieldname === "goodsLoadedImages") {
+        uploadPath = "uploads/images/goods-loaded";
+      } else if (file.fieldname === "deliveredImages") {
+        uploadPath = "uploads/images/delivered";
+      } else if (file.fieldname === "fileClaimImage") {
+        uploadPath = "uploads/images/file-claim";
+      } else {
+        uploadPath = "uploads";
+      }
+      if (!fs.existsSync(uploadPath)) {
+        fs.mkdirSync(uploadPath, { recursive: true });
+      }
+
+      if (
+        file.mimetype === "image/jpeg" ||
+        file.mimetype === "image/png" ||
+        file.mimetype === "image/jpg" ||
+        file.mimetype === "image/webp" ||
+        file.mimetype === "video/mp4"
+      ) {
+        cb(null, uploadPath);
+      } else {
+        cb(
+          new ApiError(
+            400,
+            "Tipo de archivo no válido. Solo se admiten imágenes (JPEG, JPG, PNG, WEBP) o videos (MP4)."
+          )
+        );
+      }
+    },
+    filename: function (req, file, cb) {
+      const name = Date.now() + "-" + file.originalname;
+      cb(null, name);
+    },
+  });
+
+  const fileFilter = (req, file, cb) => {
+    const allowedFieldnames = [
+      "profile_image",
+      "licensePlateImage",
+      "drivingLicenseImage",
+      "vehicleInsuranceImage",
+      "vehicleRegistrationCardImage",
+      "vehicleFrontImage",
+      "vehicleBackImage",
+      "vehicleSideImage",
+      "fileClaimImage",
+      "goodsLoadedImages",
+      "deliveredImages",
+      "image"
+    ];
+
+    if (file.fieldname === undefined) {
+      // Allow requests without any files
+      cb(null, true);
+    } else if (allowedFieldnames.includes(file.fieldname)) {
+      if (
+        file.mimetype === "image/jpeg" ||
+        file.mimetype === "image/png" ||
+        file.mimetype === "image/jpg" ||
+        file.mimetype === "image/webp" ||
+        file.mimetype === "video/mp4"
+      ) {
+        cb(null, true);
+      } else {
+        cb(
+          new ApiError(
+            400,
+            "Tipo de archivo no válido. Solo se admiten imágenes (JPEG, JPG, PNG, WEBP) o videos (MP4)."
+          )
+        );
+      }
+    } else {
+      cb(new ApiError(400, "Nombre de campo de archivo no válido."));
+    }
+  };
+
+  const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+  }).fields([
+    { name: "profile_image", maxCount: 1 },
+    { name: "licensePlateImage", maxCount: 1 },
+    { name: "drivingLicenseImage", maxCount: 1 },
+    { name: "vehicleInsuranceImage", maxCount: 1 },
+    { name: "vehicleRegistrationCardImage", maxCount: 1 },
+    { name: "vehicleFrontImage", maxCount: 1 },
+    { name: "vehicleBackImage", maxCount: 1 },
+    { name: "vehicleSideImage", maxCount: 1 },
+    { name: "image", maxCount: 20 },
+    { name: "fileClaimImage", maxCount: 10 },
+    { name: "goodsLoadedImages", maxCount: 10 },
+    { name: "deliveredImages", maxCount: 10 },
+
+  ]);
+
+  return upload;
+};
+
+module.exports = { uploadFile };
