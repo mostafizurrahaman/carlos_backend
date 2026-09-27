@@ -19,6 +19,9 @@ const {
 } = require("../../../mails/email.register");
 const { resetEmailTemplate } = require("../../../mails/reset.email");
 const path = require("path");
+const {
+  checkLegalConsentStatus,
+} = require("../manage/legalAgreement.service");
 
 // Scheduled task to unset activationCode field
 cron.schedule("* * * * *", async () => {
@@ -32,12 +35,12 @@ cron.schedule("* * * * *", async () => {
       },
       {
         $unset: { activationCode: "" },
-      }
+      },
     );
 
     if (result.modifiedCount > 0) {
       logger.info(
-        `Removed activation codes from ${result.modifiedCount} expired inactive users`
+        `Removed activation codes from ${result.modifiedCount} expired inactive users`,
       );
     }
   } catch (error) {
@@ -56,19 +59,18 @@ cron.schedule("* * * * *", async () => {
       },
       {
         $unset: { codeVerify: false },
-      }
+      },
     );
 
     if (result.modifiedCount > 0) {
       logger.info(
-        `Removed activation codes from ${result.modifiedCount} expired inactive users`
+        `Removed activation codes from ${result.modifiedCount} expired inactive users`,
       );
     }
   } catch (error) {
     logger.error("Error removing activation codes from expired users:", error);
   }
 });
-
 
 const registrationAccount = async (req) => {
   const payload = req.body;
@@ -84,13 +86,13 @@ const registrationAccount = async (req) => {
   if (!password || !confirmPassword || !email) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      "Email, Password, and Confirm Password are required!"
+      "Email, Password, and Confirm Password are required!",
     );
   }
   if (password !== confirmPassword) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      "Password and Confirm Password didn't match"
+      "Password and Confirm Password didn't match",
     );
   }
 
@@ -101,23 +103,32 @@ const registrationAccount = async (req) => {
 
   if (existingAuth && !existingAuth.isActive) {
     await Promise.all([
-      existingAuth.role === "USER" && User.deleteOne({ authId: existingAuth._id }),
-      existingAuth.role === "PARTNER" && Partner.deleteOne({ authId: existingAuth._id }),
+      existingAuth.role === "USER" &&
+        User.deleteOne({ authId: existingAuth._id }),
+      existingAuth.role === "PARTNER" &&
+        Partner.deleteOne({ authId: existingAuth._id }),
       (existingAuth.role === "ADMIN" || existingAuth.role === "SUPER_ADMIN") &&
-      Admin.deleteOne({ authId: existingAuth._id }),
+        Admin.deleteOne({ authId: existingAuth._id }),
       Auth.deleteOne({ email }),
     ]);
   }
 
   // --- File Upload Validation ---
-  const validateFile = (file, folder, allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp"]) => {
+  const validateFile = (
+    file,
+    folder,
+    allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp"],
+  ) => {
     if (!file || !file[0]) return null;
 
     const { filename, mimetype } = file[0];
 
     // check mime type
     if (!allowedTypes.includes(mimetype)) {
-      throw new ApiError(400, `Tipo de archivo no válido para ${folder}. Solo se admiten imágenes JPG, JPEG, PNG y WEBP.`);
+      throw new ApiError(
+        400,
+        `Tipo de archivo no válido para ${folder}. Solo se admiten imágenes JPG, JPEG, PNG y WEBP.`,
+      );
     }
 
     // // check file exists
@@ -132,21 +143,39 @@ const registrationAccount = async (req) => {
   const fileUploads = {};
   if (files) {
     fileUploads.profile_image = validateFile(files.profile_image, "profile");
-    fileUploads.licensePlateImage = validateFile(files.licensePlateImage, "vehicle-licenses");
-    fileUploads.drivingLicenseImage = validateFile(files.drivingLicenseImage, "driving-licenses");
-    fileUploads.vehicleInsuranceImage = validateFile(files.vehicleInsuranceImage, "insurance");
+    fileUploads.licensePlateImage = validateFile(
+      files.licensePlateImage,
+      "vehicle-licenses",
+    );
+    fileUploads.drivingLicenseImage = validateFile(
+      files.drivingLicenseImage,
+      "driving-licenses",
+    );
+    fileUploads.vehicleInsuranceImage = validateFile(
+      files.vehicleInsuranceImage,
+      "insurance",
+    );
     fileUploads.vehicleRegistrationCardImage = validateFile(
       files.vehicleRegistrationCardImage,
-      "vehicle-registration"
+      "vehicle-registration",
     );
-    fileUploads.vehicleFrontImage = validateFile(files.vehicleFrontImage, "vehicle-image");
-    fileUploads.vehicleBackImage = validateFile(files.vehicleBackImage, "vehicle-image");
-    fileUploads.vehicleSideImage = validateFile(files.vehicleSideImage, "vehicle-image");
+    fileUploads.vehicleFrontImage = validateFile(
+      files.vehicleFrontImage,
+      "vehicle-image",
+    );
+    fileUploads.vehicleBackImage = validateFile(
+      files.vehicleBackImage,
+      "vehicle-image",
+    );
+    fileUploads.vehicleSideImage = validateFile(
+      files.vehicleSideImage,
+      "vehicle-image",
+    );
   }
 
   // Remove null values
   Object.keys(fileUploads).forEach(
-    (key) => fileUploads[key] === null && delete fileUploads[key]
+    (key) => fileUploads[key] === null && delete fileUploads[key],
   );
 
   // --- Create Auth ---
@@ -224,11 +253,12 @@ const activateAccount = async (payload) => {
       {
         new: true,
         runValidators: true,
-      });
+      },
+    );
   }
 
   if (existAuth.role === ENUM_USER_ROLE.PARTNER) {
-    return { message: "Code verify successfully!", status: "success" }
+    return { message: "Code verify successfully!", status: "success" };
   }
 
   let result = {};
@@ -246,7 +276,7 @@ const activateAccount = async (payload) => {
     throw new ApiError(400, "Invalid role provided!");
   }
 
-  // -------------- 
+  // --------------
   if (!existAuth.playerIds) {
     existAuth.playerIds = [];
   }
@@ -259,16 +289,21 @@ const activateAccount = async (payload) => {
       authId: existAuth?._id,
       role: existAuth?.role,
       userId: result?._id,
-      emailAuth: result?.email
+      emailAuth: result?.email,
     },
     config.jwt.secret,
-    config.jwt.expires_in
+    config.jwt.expires_in,
   );
 
   const refreshToken = jwtHelpers.createToken(
-    { authId: existAuth._id, userId: result._id, role: existAuth.role, emailAuth: result.email },
+    {
+      authId: existAuth._id,
+      userId: result._id,
+      role: existAuth.role,
+      emailAuth: result.email,
+    },
     config.jwt.refresh_secret,
-    config.jwt.refresh_expires_in
+    config.jwt.refresh_expires_in,
   );
 
   return {
@@ -306,19 +341,19 @@ const loginAccount = async (payload) => {
   let role;
   switch (isAuth.role) {
     case ENUM_USER_ROLE.USER:
-      userDetails = await User.findOne({ authId: isAuth?._id })
+      userDetails = await User.findOne({ authId: isAuth?._id });
       role = ENUM_USER_ROLE.USER;
       break;
     case ENUM_USER_ROLE.PARTNER:
-      userDetails = await Partner.findOne({ authId: isAuth?._id })
+      userDetails = await Partner.findOne({ authId: isAuth?._id });
       role = ENUM_USER_ROLE.PARTNER;
       break;
     case ENUM_USER_ROLE.ADMIN:
-      userDetails = await Admin.findOne({ authId: isAuth?._id })
+      userDetails = await Admin.findOne({ authId: isAuth?._id });
       role = ENUM_USER_ROLE.ADMIN;
       break;
     case ENUM_USER_ROLE.SUPER_ADMIN:
-      userDetails = await Admin.findOne({ authId: isAuth?._id })
+      userDetails = await Admin.findOne({ authId: isAuth?._id });
       role = ENUM_USER_ROLE.SUPER_ADMIN;
       break;
     default:
@@ -336,17 +371,22 @@ const loginAccount = async (payload) => {
   }
   await isAuth.save();
 
-  // ------------ 
+  // ------------
   const accessToken = jwtHelpers.createToken(
     { authId, role, userId: userDetails?._id, emailAuth: userDetails.email },
     config.jwt.secret,
-    config.jwt.expires_in
+    config.jwt.expires_in,
   );
 
   const refreshToken = jwtHelpers.createToken(
     { authId, role, userId: userDetails?._id, emailAuth: userDetails.email },
     config.jwt.refresh_secret,
-    config.jwt.refresh_expires_in
+    config.jwt.refresh_expires_in,
+  );
+
+  const legalConsent = await checkLegalConsentStatus(
+    userDetails?._id,
+    isAuth.role,
   );
   return {
     id: isAuth._id,
@@ -354,6 +394,7 @@ const loginAccount = async (payload) => {
     accessToken,
     refreshToken,
     user: userDetails,
+    legalConsent,
   };
 };
 
@@ -365,7 +406,7 @@ const forgotPass = async (payload) => {
 
     const user = await Auth.findOne(
       { email: payload.email },
-      { _id: 1, role: 1, email: 1, name: 1 }
+      { _id: 1, role: 1, email: 1, name: 1 },
     );
 
     if (!user) {
@@ -394,7 +435,10 @@ const forgotPass = async (payload) => {
       });
     } catch (emailError) {
       console.error("Email sending failed:", emailError);
-      throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, "Failed to send email.");
+      throw new ApiError(
+        httpStatus.INTERNAL_SERVER_ERROR,
+        "Failed to send email.",
+      );
     }
   } catch (error) {
     console.error("Error in forgotPass:", error);
@@ -419,7 +463,7 @@ const checkIsValidForgetActivationCode = async (payload) => {
   }
   const update = await Auth.updateOne(
     { email: account.email },
-    { codeVerify: true }
+    { codeVerify: true },
   );
   account.verifyCode = null;
   await account.save();
@@ -447,12 +491,12 @@ const resetPassword = async (req) => {
 
   const hashedPassword = await bcrypt.hash(
     newPassword,
-    Number(config.bcrypt_salt_rounds)
+    Number(config.bcrypt_salt_rounds),
   );
 
   const result = await Auth.updateOne(
     { email },
-    { password: hashedPassword, codeVerify: false }
+    { password: hashedPassword, codeVerify: false },
   );
   return result;
 };
@@ -462,7 +506,10 @@ const changePassword = async (user, payload) => {
   const { oldPassword, newPassword, confirmPassword } = payload;
 
   if (newPassword !== confirmPassword) {
-    throw new ApiError(httpStatus.BAD_REQUEST, "Password and confirm password do not match.");
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      "Password and confirm password do not match.",
+    );
   }
 
   const isUserExist = await Auth.findById(authId).select("+password");
@@ -479,7 +526,7 @@ const changePassword = async (user, payload) => {
 
   const hashedPassword = await bcrypt.hash(
     newPassword,
-    Number(config.bcrypt_salt_rounds)
+    Number(config.bcrypt_salt_rounds),
   );
 
   await Auth.findByIdAndUpdate(authId, { password: hashedPassword });
@@ -560,7 +607,7 @@ const resendCodeActivationAccount = async (payload) => {
         </div>
     </body>
     </html>
-      `
+      `,
   );
 };
 
@@ -640,13 +687,14 @@ const resendCodeForgotAccount = async (payload) => {
         </div>
     </body>
     </html>
-      `
+      `,
   );
 };
 
 //OAuth -------------
 const OAuthLoginAccount = async (payload) => {
-  const { OAuthId, email, name, phone_number, profile_image, role, playerId } = payload;
+  const { OAuthId, email, name, phone_number, profile_image, role, playerId } =
+    payload;
 
   let userDetails;
   let accessToken;
@@ -662,7 +710,7 @@ const OAuthLoginAccount = async (payload) => {
           userDetails = await User.findOneAndUpdate(
             { email },
             { ...payload },
-            { new: true }
+            { new: true },
           );
           break;
 
@@ -670,7 +718,7 @@ const OAuthLoginAccount = async (payload) => {
           userDetails = await Partner.findOneAndUpdate(
             { email },
             { ...payload },
-            { new: true }
+            { new: true },
           );
           break;
 
@@ -679,7 +727,7 @@ const OAuthLoginAccount = async (payload) => {
           userDetails = await Admin.findOneAndUpdate(
             { email },
             { ...payload },
-            { new: true }
+            { new: true },
           );
           break;
 
@@ -691,16 +739,15 @@ const OAuthLoginAccount = async (payload) => {
         throw new ApiError(404, "User details not found.");
       }
 
-      await Auth.findOneAndUpdate(
-        { _id: isAuth._id },
-        { name }
-      );
+      await Auth.findOneAndUpdate({ _id: isAuth._id }, { name });
 
       // Generate tokens
       ({ accessToken, refreshToken } = generateTokens(isAuth, userDetails));
 
-      // -------------- 
-      isAuth.playerIds = (isAuth.playerIds || []).filter((id) => id !== playerId);
+      // --------------
+      isAuth.playerIds = (isAuth.playerIds || []).filter(
+        (id) => id !== playerId,
+      );
       isAuth.playerIds.push(playerId);
       if (isAuth.playerIds.length > 5) {
         isAuth.playerIds.shift();
@@ -736,7 +783,7 @@ const OAuthLoginAccount = async (payload) => {
       if (!authUser) {
         throw new ApiError(
           httpStatus.INTERNAL_SERVER_ERROR,
-          "Failed to create auth entry."
+          "Failed to create auth entry.",
         );
       }
 
@@ -754,7 +801,7 @@ const OAuthLoginAccount = async (payload) => {
       if (!result) {
         throw new ApiError(
           httpStatus.INTERNAL_SERVER_ERROR,
-          "Failed to create user."
+          "Failed to create user.",
         );
       }
 
@@ -780,10 +827,10 @@ const generateTokens = (authUser, userDetails) => {
       authId: authUser._id,
       role: authUser.role,
       userId: userDetails._id,
-      emailAuth: authUser.email
+      emailAuth: authUser.email,
     },
     config.jwt.secret,
-    config.jwt.expires_in
+    config.jwt.expires_in,
   );
 
   const refreshToken = jwtHelpers.createToken(
@@ -791,10 +838,10 @@ const generateTokens = (authUser, userDetails) => {
       authId: authUser._id,
       role: authUser.role,
       userId: userDetails._id,
-      emailAuth: authUser.email
+      emailAuth: authUser.email,
     },
     config.jwt.refresh_secret,
-    config.jwt.refresh_expires_in
+    config.jwt.refresh_expires_in,
   );
 
   return { accessToken, refreshToken };
@@ -805,19 +852,22 @@ const generateRandomPassword = () => {
 };
 
 const phoneOTPVerifications = async (payload, user) => {
-  console.log({payload})
+  console.log({ payload });
   const { authId, userId, role } = user;
-  const findUser = await Auth.findById(authId)
+  const findUser = await Auth.findById(authId);
   // console.log("userId", userId)
   let userDb;
   if (role === ENUM_USER_ROLE.PARTNER) {
-    userDb = await Partner.findById(userId)
+    userDb = await Partner.findById(userId);
   } else if (role === ENUM_USER_ROLE.USER) {
-    userDb = await User.findById(userId)
+    userDb = await User.findById(userId);
   }
 
   if (!payload.phone_number || !payload.phone_c_code) {
-    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, "Phone number and country code are require.");
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      "Phone number and country code are require.",
+    );
   }
 
   if (!userDb) {
@@ -834,16 +884,13 @@ const phoneOTPVerifications = async (payload, user) => {
 
   findUser.verifyOtp = null;
   findUser.otpVerify = true;
-  await findUser.save()
-  userDb.phone_number = payload.phone_number.toString()
+  await findUser.save();
+  userDb.phone_number = payload.phone_number.toString();
   userDb.isPhoneNumberVerified = true;
-  userDb.phone_c_code = payload.phone_c_code
-  await userDb.save()
+  userDb.phone_c_code = payload.phone_c_code;
+  await userDb.save();
   return findUser;
 };
-
-
-
 
 const AuthService = {
   registrationAccount,
@@ -856,7 +903,7 @@ const AuthService = {
   resendCodeActivationAccount,
   resendCodeForgotAccount,
   OAuthLoginAccount,
-  phoneOTPVerifications
+  phoneOTPVerifications,
 };
 
 module.exports = { AuthService };

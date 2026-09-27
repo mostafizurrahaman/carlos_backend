@@ -20,10 +20,27 @@ const categorySchema = new Schema(
       type: String,
       required: true,
     },
+
+    // ============================================
+    // Category-Specific Independent Markup (Feature 7)
+    // ============================================
+    markupType: {
+      type: String,
+      enum: ["percentage", "fixed", "formula"],
+      default: "percentage",
+    },
+    markupValue: {
+      type: Number,
+      default: 0, // e.g., 10 for 10% or 25 for flat $25
+    },
+    markupFormula: {
+      type: String, // e.g., "basePrice * 0.12 + 5"
+      default: null,
+    },
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 const Category = model("Category", categorySchema);

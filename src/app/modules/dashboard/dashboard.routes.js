@@ -14,30 +14,30 @@ router
     "/total-counts",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_DASHBOARD_HOME),
-    DashboardController.getTotalIncomeUserAuction
+    DashboardController.getTotalIncomeUserAuction,
   )
   .get(
     "/income-overview",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_DASHBOARD_HOME),
-    DashboardController.incomeOverview
+    DashboardController.incomeOverview,
   )
   .get(
     "/user-growth",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_DASHBOARD_HOME),
-    DashboardController.getUserGrowth
+    DashboardController.getUserGrowth,
   )
   // overview ========================
   .get(
     "/total-overview",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.totalOverview
+    DashboardController.totalOverview,
   )
   .get(
     "/user-partner-growth",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.getMonthlyRegistrations
+    DashboardController.getMonthlyRegistrations,
   )
 
   // user ========================
@@ -45,18 +45,18 @@ router
     "/get_all_user",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_USER_MANAGE),
-    DashboardController.getAllUsers
+    DashboardController.getAllUsers,
   )
   .get(
     "/get_user_details",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.getUserDetails
+    DashboardController.getUserDetails,
   )
   .delete(
     "/delete_user",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_USER_EDIT),
-    DashboardController.deleteUser
+    DashboardController.deleteUser,
   )
 
   // .get(
@@ -71,58 +71,58 @@ router
     "/get_all_partner",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_PARTNER_MANAGE),
-    DashboardController.getAllPartner
+    DashboardController.getAllPartner,
   )
   .get(
     "/get_padding_partner",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_DASHBOARD_HOME),
-    DashboardController.getPaddingPartner
+    DashboardController.getPaddingPartner,
   )
   .get(
     "/get_partner_details",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.getPartnerDetails
+    DashboardController.getPartnerDetails,
   )
   .delete(
     "/delete_partner",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_PARTNER_EDIT),
-    DashboardController.deletePartner
+    DashboardController.deletePartner,
   )
   .get(
     "/get_pending_partners",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_PARTNER_MANAGE),
-    DashboardController.getAllPendingPartners
+    DashboardController.getAllPendingPartners,
   )
   .patch(
     "/approve_decline_partner",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_DASHBOARD_HOME_EDIT),
-    DashboardController.approveDeclinePartner
+    DashboardController.approveDeclinePartner,
   )
 
   // Admin ========================
   .get(
     "/get_all_admin",
     auth(ENUM_USER_ROLE.SUPER_ADMIN, ENUM_USER_ROLE.ADMIN),
-    DashboardController.getAllAdmins
+    DashboardController.getAllAdmins,
   )
   .get(
     "/get_admin_details",
     auth(ENUM_USER_ROLE.SUPER_ADMIN, ENUM_USER_ROLE.ADMIN),
-    DashboardController.getAdminDetails
+    DashboardController.getAdminDetails,
   )
   .delete(
     "/delete_admin",
     auth(ENUM_USER_ROLE.SUPER_ADMIN, ENUM_USER_ROLE.ADMIN),
-    DashboardController.deleteAdmin
+    DashboardController.deleteAdmin,
   )
   .patch(
     "/edit-profile",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.updateProfile
+    DashboardController.updateProfile,
   )
 
   // Common ========================
@@ -132,9 +132,9 @@ router
     checkAdminAccess(
       ENUM_ADMIN_ACCESS.ACC_TO_USER_EDIT,
       ENUM_ADMIN_ACCESS.ACC_TO_ADMIN_MANAGE_EDIT,
-      ENUM_ADMIN_ACCESS.ACC_TO_PARTNER_EDIT
+      ENUM_ADMIN_ACCESS.ACC_TO_PARTNER_EDIT,
     ),
-    DashboardController.blockUnblockUserPartnerAdmin
+    DashboardController.blockUnblockUserPartnerAdmin,
   )
 
   // Manage ========================
@@ -142,29 +142,31 @@ router
     "/add-terms-conditions",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SETTINGS_EDIT),
-    DashboardController.addTermsConditions
+    DashboardController.addTermsConditions,
   )
-  .get("/get-terms-conditions",
+  .get(
+    "/get-terms-conditions",
     // checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SETTINGS),
-    DashboardController.getTermsConditions)
+    DashboardController.getTermsConditions,
+  )
   .delete(
     "/delete-terms-conditions",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SETTINGS_EDIT),
-    DashboardController.deleteTermsConditions
+    DashboardController.deleteTermsConditions,
   )
   .post(
     "/add-privacy-policy",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SETTINGS_EDIT),
-    DashboardController.addPrivacyPolicy
+    DashboardController.addPrivacyPolicy,
   )
   .get("/get-privacy-policy", DashboardController.getPrivacyPolicy)
   .delete(
     "/delete-privacy-policy",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SETTINGS_EDIT),
-    DashboardController.deletePrivacyPolicy
+    DashboardController.deletePrivacyPolicy,
   )
 
   // Auction Management ========================
@@ -172,77 +174,100 @@ router
     "/get-all-auction",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_AUCTION_MANAGE),
-    DashboardController.getAllAuctions
+    DashboardController.getAllAuctions,
   )
   .patch(
     "/edit-min-max-bid-amount",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_VARIABLE_MANAGE, ENUM_ADMIN_ACCESS.ACC_TO_EDIT),
-    DashboardController.editMinMaxBidAmount
+    checkAdminAccess(
+      ENUM_ADMIN_ACCESS.ACC_TO_VARIABLE_MANAGE,
+      ENUM_ADMIN_ACCESS.ACC_TO_EDIT,
+    ),
+    DashboardController.editMinMaxBidAmount,
   )
   .patch(
     "/search",
     // auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.filterAndSortServices
+    DashboardController.filterAndSortServices,
   )
 
   .patch(
     "/search_custom",
-    auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.USER, ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.filterAndSortServicesCustom
+    auth(
+      ENUM_USER_ROLE.PARTNER,
+      ENUM_USER_ROLE.USER,
+      ENUM_USER_ROLE.ADMIN,
+      ENUM_USER_ROLE.SUPER_ADMIN,
+    ),
+    DashboardController.filterAndSortServicesCustom,
   )
   .get(
     "/search_custom",
-    auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.USER, ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
-    DashboardController.filterAndSortServicesCustom
+    auth(
+      ENUM_USER_ROLE.PARTNER,
+      ENUM_USER_ROLE.USER,
+      ENUM_USER_ROLE.ADMIN,
+      ENUM_USER_ROLE.SUPER_ADMIN,
+    ),
+    DashboardController.filterAndSortServicesCustom,
   )
 
   .post(
     "/notice/user",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_USER_EDIT),
-    DashboardController.sendNoticeUsers
+    DashboardController.sendNoticeUsers,
   )
   .post(
     "/notice/partner",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_PARTNER_EDIT),
-    DashboardController.sendNoticePartner
+    DashboardController.sendNoticePartner,
   )
   .get(
-    '/transactions',
+    "/transactions",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_TRANSACTION),
-    DashboardController.getTransactionsHistory
+    DashboardController.getTransactionsHistory,
   )
   .get(
-    '/transaction/:id',
+    "/transaction/:id",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_TRANSACTION),
-    DashboardController.getTransactionsDetails
+    DashboardController.getTransactionsDetails,
   )
   // =File Claim================================
   .patch(
     "/status-file-claim",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SUPPORT_EDIT),
-    BidController.updateStatusFileClaim
+    BidController.updateStatusFileClaim,
   )
   .patch(
-    '/penalty',
+    "/penalty",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SUPPORT_EDIT),
-    BidController.applyPenaltyPercent
+    BidController.applyPenaltyPercent,
   )
   .get(
-    '/get-file-claim',
+    "/get-file-claim",
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SUPPORT),
-    BidController.getAllFileClaims
+    BidController.getAllFileClaims,
   )
-
+  .post(
+    "/claim-note/:claimId",
+    auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
+    checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SUPPORT_EDIT),
+    BidController.addAdminClaimNote,
+  )
+  .patch(
+    "/resolve-claim",
+    auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
+    checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SUPPORT_EDIT),
+    BidController.resolveAdminClaim,
+  );
 
 // variable ========================
-
 
 module.exports = router;

@@ -36,15 +36,15 @@ const PartnerSchema = new Schema(
       type: String,
       default: null,
     },
-    street:{
+    street: {
       type: String,
       default: null,
     },
-    exterior_number:{
+    exterior_number: {
       type: String,
       default: null,
     },
-    interior_number:{
+    interior_number: {
       type: String,
       default: null,
     },
@@ -112,8 +112,8 @@ const PartnerSchema = new Schema(
       type: String,
       default: null,
     },
-    bank_name:{
-      type: String, 
+    bank_name: {
+      type: String,
       default: null,
     },
     bank_holder_type: {

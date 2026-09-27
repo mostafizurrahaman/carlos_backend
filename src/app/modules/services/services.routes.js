@@ -109,8 +109,13 @@ router
   .post(
     "/create-file-claim",
     uploadFile(),
-    auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.USER),
-    BidController.createFileClaim
+    auth(
+      ENUM_USER_ROLE.PARTNER,
+      ENUM_USER_ROLE.USER,
+      ENUM_USER_ROLE.ADMIN,
+      ENUM_USER_ROLE.SUPER_ADMIN,
+    ),
+    BidController.createFileClaim,
   )
   .post(
     "/upload-status-image",

@@ -52,6 +52,18 @@ const getBitProfilePartner = catchAsync(async (req, res) => {
   });
 });
 
+// Partner ratings & performance summary (Feature 8)
+const getPartnerRatingsSummary = catchAsync(async (req, res) => {
+  const { partnerId } = req.params;
+  const result = await BidService.getPartnerRatingsSummary(partnerId);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Partner ratings summary retrieved successfully",
+    data: result,
+  });
+});
+
 const postReviewMove = catchAsync(async (req, res) => {
   const result = await BidService.postReviewMove(req);
   sendResponse(res, {
@@ -87,7 +99,31 @@ const createFileClaim = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "File claim submit successfully",
+    message: "File claim submitted successfully",
+    data: result,
+  });
+});
+
+// Admin adds internal review note to a claim (Feature 11)
+const addAdminClaimNote = catchAsync(async (req, res) => {
+  const { claimId } = req.params;
+  const { note } = req.body;
+  const result = await BidService.addAdminClaimNote(claimId, note, req.user);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Admin claim note added successfully",
+    data: result,
+  });
+});
+
+// Admin resolves a claim with a final decision (Feature 11)
+const resolveAdminClaim = catchAsync(async (req, res) => {
+  const result = await BidService.resolveAdminClaim(req);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Claim resolved and decision recorded successfully",
     data: result,
   });
 });
@@ -97,7 +133,7 @@ const updateStatusFileClaim = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "File claim submit successfully",
+    message: "File claim status updated successfully",
     data: result,
   });
 });
@@ -107,7 +143,7 @@ const applyPenaltyPercent = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "Penalty apply successfully!",
+    message: "Penalty applied successfully!",
     data: result,
   });
 });
@@ -131,18 +167,20 @@ const getAllFileClaims = catchAsync(async (req, res) => {
     data: result,
   });
 });
- 
 
 const BidController = {
   partnerBidPost,
   partnerAllBids,
   filterBidsByMove,
   filterBidsByHistory,
-  postReviewMove, 
+  postReviewMove,
   getPartnerReviews,
+  getPartnerRatingsSummary,
   getBitProfilePartner,
   orderDetailsPageFileClaim,
   createFileClaim,
+  addAdminClaimNote,
+  resolveAdminClaim,
   updateStatusFileClaim,
   applyPenaltyPercent,
   statusServicesDetails,

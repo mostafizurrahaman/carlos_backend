@@ -21,22 +21,39 @@ const updateProfile = async (req) => {
   };
 
   if (files) {
-    fileUploads.profile_image = files.profile_image ? validateFile(files.profile_image, "profile") : null;
-    fileUploads.licensePlateImage = files.licensePlateImage ? validateFile(files.licensePlateImage, "vehicle-licenses") : null;
-    fileUploads.drivingLicenseImage = files.drivingLicenseImage ? validateFile(files.drivingLicenseImage, "driving-licenses") : null;
-    fileUploads.vehicleInsuranceImage = files.vehicleInsuranceImage ? validateFile(files.vehicleInsuranceImage, "insurance") : null;
-    fileUploads.vehicleRegistrationCardImage = files.vehicleRegistrationCardImage ? validateFile(
-      files.vehicleRegistrationCardImage,
-      "vehicle-registration"
-    ) : null;
-    fileUploads.vehicleFrontImage = files.vehicleFrontImage ? validateFile(files.vehicleFrontImage, "vehicle-image") : null;
-    fileUploads.vehicleBackImage = files.vehicleBackImage ? validateFile(files.vehicleBackImage, "vehicle-image") : null;
-    fileUploads.vehicleSideImage = files.vehicleSideImage ? validateFile(files.vehicleSideImage, "vehicle-image") : null;
+    fileUploads.profile_image = files.profile_image
+      ? validateFile(files.profile_image, "profile")
+      : null;
+    fileUploads.licensePlateImage = files.licensePlateImage
+      ? validateFile(files.licensePlateImage, "vehicle-licenses")
+      : null;
+    fileUploads.drivingLicenseImage = files.drivingLicenseImage
+      ? validateFile(files.drivingLicenseImage, "driving-licenses")
+      : null;
+    fileUploads.vehicleInsuranceImage = files.vehicleInsuranceImage
+      ? validateFile(files.vehicleInsuranceImage, "insurance")
+      : null;
+    fileUploads.vehicleRegistrationCardImage =
+      files.vehicleRegistrationCardImage
+        ? validateFile(
+            files.vehicleRegistrationCardImage,
+            "vehicle-registration",
+          )
+        : null;
+    fileUploads.vehicleFrontImage = files.vehicleFrontImage
+      ? validateFile(files.vehicleFrontImage, "vehicle-image")
+      : null;
+    fileUploads.vehicleBackImage = files.vehicleBackImage
+      ? validateFile(files.vehicleBackImage, "vehicle-image")
+      : null;
+    fileUploads.vehicleSideImage = files.vehicleSideImage
+      ? validateFile(files.vehicleSideImage, "vehicle-image")
+      : null;
   }
 
   // Remove undefined/null fields
   Object.keys(fileUploads).forEach(
-    (key) => fileUploads[key] === null && delete fileUploads[key]
+    (key) => fileUploads[key] === null && delete fileUploads[key],
   );
 
   const updatedUserData = { ...data, ...fileUploads };
@@ -45,7 +62,7 @@ const updateProfile = async (req) => {
     Auth.findByIdAndUpdate(
       authId,
       { name: updatedUserData.name },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ),
     Partner.findByIdAndUpdate(userId, updatedUserData, {
       new: true,
@@ -65,7 +82,10 @@ const getProfile = async (user) => {
 
   const auth = await Auth.findById(result.authId);
   if (auth.is_block) {
-    throw new ApiError(httpStatus.FORBIDDEN, "You are blocked. Contact support");
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      "You are blocked. Contact support",
+    );
   }
 
   return result;

@@ -14,6 +14,7 @@ const VariableRoutes = require("../modules/variable/variable.route");
 const SupportRoutes = require("../modules/support/support.router");
 const NotificationRoutes = require("../modules/notification/notification.route");
 const LogsDashboardRoutes = require("../modules/logs-dashboard/logsdashboard.router");
+const LegalAgreementRoutes = require("../modules/manage/legalAgreement.routes");
 
 const moduleRoutes = [
   {
@@ -53,6 +54,10 @@ const moduleRoutes = [
     route: BidsRoutes,
   },
   {
+    path: "/bid",
+    route: BidsRoutes,
+  },
+  {
     path: "/category",
     route: CategoryRoutes,
   },
@@ -71,6 +76,10 @@ const moduleRoutes = [
   {
     path: "/payment",
     route: PaymentRoutes,
+  },
+  {
+    path: "/legal",
+    route: LegalAgreementRoutes,
   },
 ];
 

@@ -12,12 +12,12 @@ router
     "/edit-profile",
     auth(ENUM_USER_ROLE.PARTNER),
     uploadFile(),
-    PartnerController.updateProfile
+    PartnerController.updateProfile,
   )
   .delete(
     "/delete-account",
     auth(ENUM_USER_ROLE.PARTNER),
-    PartnerController.deleteMyAccount
+    PartnerController.deleteMyAccount,
   );
 
 module.exports = router;
