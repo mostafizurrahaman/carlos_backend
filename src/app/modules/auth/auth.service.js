@@ -404,10 +404,13 @@ const forgotPass = async (payload) => {
       throw new ApiError(httpStatus.BAD_REQUEST, "Email is required!");
     }
 
-    const user = await Auth.findOne(
-      { email: payload.email },
-      { _id: 1, role: 1, email: 1, name: 1 },
-    );
+    const email = payload.email.trim().toLowerCase();
+    const user = await Auth.findOne({
+      $or: [
+        { email: email },
+        { email: payload.email.trim() }
+      ]
+    });
 
     if (!user) {
       throw new ApiError(httpStatus.BAD_REQUEST, "User not found!");
@@ -418,6 +421,7 @@ const forgotPass = async (payload) => {
 
     user.verifyCode = verifyCode;
     user.verifyExpire = verifyExpire;
+    user.codeVerify = false;
 
     await user.save();
 
@@ -429,7 +433,7 @@ const forgotPass = async (payload) => {
 
     try {
       await sendEmail({
-        email: payload.email,
+        email: user.email,
         subject: "Password reset code",
         html: resetEmailTemplate(data),
       });
@@ -440,6 +444,8 @@ const forgotPass = async (payload) => {
         "Failed to send email.",
       );
     }
+
+    return { email: user.email };
   } catch (error) {
     console.error("Error in forgotPass:", error);
     throw error;
@@ -447,40 +453,65 @@ const forgotPass = async (payload) => {
 };
 
 const checkIsValidForgetActivationCode = async (payload) => {
-  const account = await Auth.findOne({ email: payload.email });
+  const { email, code } = payload || {};
+  if (!email) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Email is required!");
+  }
+  if (!code) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Verification code is required!");
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const account = await Auth.findOne({
+    $or: [
+      { email: normalizedEmail },
+      { email: email.trim() }
+    ]
+  });
 
   if (!account) {
     throw new ApiError(httpStatus.BAD_REQUEST, "Account does not exist!");
   }
 
-  if (account.verifyCode !== payload.code) {
+  if (String(account.verifyCode).trim() !== String(code).trim()) {
     throw new ApiError(httpStatus.BAD_REQUEST, "Invalid reset code!");
   }
 
   const currentTime = new Date();
-  if (currentTime > account.verifyExpire) {
+  if (account.verifyExpire && currentTime > account.verifyExpire) {
     throw new ApiError(httpStatus.BAD_REQUEST, "Reset code has expired!");
   }
-  const update = await Auth.updateOne(
-    { email: account.email },
-    { codeVerify: true },
-  );
+
+  account.codeVerify = true;
   account.verifyCode = null;
+  account.verifyExpire = null;
   await account.save();
-  return update;
+
+  return { message: "Code verified successfully" };
 };
 
 const resetPassword = async (req) => {
-  const { email } = req.query;
-  const { newPassword, confirmPassword } = req.body;
+  const email = (req.query?.email || req.body?.email || "").trim().toLowerCase();
+  const rawEmail = (req.query?.email || req.body?.email || "").trim();
+  const newPassword = req.body?.newPassword || req.body?.password;
+  const confirmPassword = req.body?.confirmPassword;
 
-  console.log(" ffdg", email, newPassword, confirmPassword);
+  if (!email) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Email is required!");
+  }
 
-  if (newPassword !== confirmPassword) {
+  if (!newPassword) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Password is required!");
+  }
+
+  if (confirmPassword && newPassword !== confirmPassword) {
     throw new ApiError(httpStatus.BAD_REQUEST, "Passwords do not match");
   }
 
-  const auth = await Auth.findOne({ email }, { _id: 1, codeVerify: 1 });
+  const auth = await Auth.findOne({
+    $or: [{ email }, { email: rawEmail }]
+  }, { _id: 1, email: 1, codeVerify: 1 });
+
   if (!auth) {
     throw new ApiError(httpStatus.BAD_REQUEST, "User not found!");
   }
@@ -495,7 +526,7 @@ const resetPassword = async (req) => {
   );
 
   const result = await Auth.updateOne(
-    { email },
+    { _id: auth._id },
     { password: hashedPassword, codeVerify: false },
   );
   return result;
@@ -612,83 +643,52 @@ const resendCodeActivationAccount = async (payload) => {
 };
 
 const resendCodeForgotAccount = async (payload) => {
-  const email = payload.email;
+  const email = payload?.email;
 
   if (!email) {
-    throw new ApiError(httpStatus.BAD_REQUEST, "Email not found!");
+    throw new ApiError(httpStatus.BAD_REQUEST, "Email is required!");
   }
-  const user = await Auth.findOne({ email });
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = await Auth.findOne({
+    $or: [
+      { email: normalizedEmail },
+      { email: email.trim() }
+    ]
+  });
+
   if (!user) {
     throw new ApiError(httpStatus.BAD_REQUEST, "User not found!");
   }
+
   const verifyCode = createActivationToken().activationCode;
-  const expiryTime = new Date(Date.now() + 3 * 60 * 1000);
+  const verifyExpire = new Date(Date.now() + 15 * 60 * 1000);
   user.verifyCode = verifyCode;
-  user.verifyExpire = expiryTime;
+  user.verifyExpire = verifyExpire;
+  user.codeVerify = false;
   await user.save();
 
-  sendResetEmail(
-    user.email,
-    `<!DOCTYPE html>
-     <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Activation Code</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                background-color: #f4f4f4;
-                margin: 0;
-                padding: 20px;
-            }
-            .container {
-                max-width: 600px;
-                margin: auto;
-                background: white;
-                padding: 20px;
-                border-radius: 5px;
-                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            }
-            h1 {
-                color: #333;
-            }
-            p {
-                color: #555;
-                line-height: 1.5;
-            }
-            .footer {
-                margin-top: 20px;
-                font-size: 12px;
-                color: #999;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Hello, ${user.name}</h1>
-            <p>Your activation code is: <strong>${verifyCode}</strong></p>
-            <p>Please use this code to activate your account. If you did not request this, please ignore this email.</p>
-            <p>Thank you!</p>
-            <div class="footer">
-                <p>&copy; ${new Date().getFullYear()}Xmoveit</p>
-            </div>
-        </div>
-         
-       <br><br> 
-        <div class="container"> 
-            <h1>Hola, ${user.name}</h1>
-            <p>Tu código de activación es: <strong>${verifyCode}</strong> </p>
-            <p> Por favor, utiliza este código para activar tu cuenta. Si no solicitaste esto, ignora este correo electrónico. </p>
-            <p>¡Gracias!</p>
-            <div class="footer">
-                <p>&copy; ${new Date().getFullYear()} Xmoveit</p>
-            </div>
-        </div>
-    </body>
-    </html>
-      `,
-  );
+  const data = {
+    name: user.name,
+    verifyCode,
+    verifyExpire: Math.round((verifyExpire - Date.now()) / (60 * 1000)),
+  };
+
+  try {
+    await sendEmail({
+      email: user.email,
+      subject: "Password reset code",
+      html: resetEmailTemplate(data),
+    });
+  } catch (emailError) {
+    console.error("Email sending failed in resendCodeForgotAccount:", emailError);
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      "Failed to send email.",
+    );
+  }
+
+  return { message: "Resent successfully" };
 };
 
 //OAuth -------------
