@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "seed": "node scripts/seed_dummy_data.js",
     "lint:check": "eslint --ignore-path .eslintignore --ext .js .",
     "lint:fix": "eslint . --fix",
     "prettier:fix": "prettier --write .",

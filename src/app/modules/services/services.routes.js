@@ -20,6 +20,11 @@ router
     uploadFile(),
     ServicesController.updatePostDB
   )
+  .get(
+    "/my-claims",
+    auth(ENUM_USER_ROLE.USER, ENUM_USER_ROLE.PARTNER),
+    BidController.getMyFileClaims
+  )
   .get("/details/:serviceId",
     auth(ENUM_USER_ROLE.USER, ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     ServicesController.getDetails)

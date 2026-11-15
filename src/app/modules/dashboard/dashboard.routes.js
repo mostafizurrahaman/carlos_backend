@@ -266,6 +266,12 @@ router
     auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
     checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SUPPORT_EDIT),
     BidController.resolveAdminClaim,
+  )
+  .post(
+    "/execute-claim-decision",
+    auth(ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
+    checkAdminAccess(ENUM_ADMIN_ACCESS.ACC_TO_SUPPORT_EDIT),
+    BidController.executeClaimDecision,
   );
 
 // variable ========================

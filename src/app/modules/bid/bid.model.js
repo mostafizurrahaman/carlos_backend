@@ -137,6 +137,11 @@ const fileClaimSchema = new Schema(
       penaltyOrRefundAmount: Number,
       resolvedAt: Date,
       resolvedBy: { type: mongoose.Schema.ObjectId, ref: "Admin" },
+      // Money execution (refund / penalty) is run only after explicit admin confirmation
+      executed: { type: Boolean, default: false },
+      executedAt: Date,
+      executedBy: { type: mongoose.Schema.ObjectId, ref: "Admin" },
+      executionRef: String,
     },
   },
   {

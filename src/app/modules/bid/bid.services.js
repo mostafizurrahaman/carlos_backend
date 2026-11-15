@@ -578,6 +578,12 @@ const createFileClaim = async (req) => {
     status: "pending",
   });
 
+  // Mark the service as disputed so its flow and lists reflect the claim
+  await Services.findByIdAndUpdate(serviceId, {
+    claimStatus: "pending",
+    activeClaimId: result._id,
+  });
+
   // Record digital traceability for the claim submission
   await recordTraceability({
     actorId: userId,
@@ -668,6 +674,12 @@ const resolveAdminClaim = async (req) => {
 
   await claim.save();
 
+  // Keep the service's dispute state in sync with the resolved claim
+  await Services.findOneAndUpdate(
+    { _id: claim.serviceId, activeClaimId: claim._id },
+    { claimStatus: claim.status },
+  );
+
   // Record traceability log for claim resolution
   await recordTraceability({
     actorId: userId,
@@ -723,6 +735,12 @@ const updateStatusFileClaim = async (req) => {
     if (!result) {
       throw new ApiError(404, "File claim not found.");
     }
+
+    // Keep the service's dispute state in sync with the claim status
+    await Services.findOneAndUpdate(
+      { _id: result.serviceId, activeClaimId: result._id },
+      { claimStatus: status },
+    );
 
     if (status === "resolved") {
       await NotificationService.sendNotification({
@@ -827,7 +845,7 @@ const getAllFileClaims = async (req) => {
   }
 };
 
-const applyPenaltyPercent = async (req) => {
+const applyPenaltyPercent = async (req, options = {}) => {
   const { serviceId, amountPercent, reason, id } = req.body;
 
   if (!serviceId || !mongoose.isValidObjectId(serviceId)) {
@@ -837,6 +855,16 @@ const applyPenaltyPercent = async (req) => {
   const fileClaim = await FileClaim.findById(id);
   if (!fileClaim) {
     throw new ApiError(400, "Invalid or missing file claim 'id'.");
+  }
+
+  // A penalty decided on a claim must go through executeClaimDecision (admin confirmation, runs once)
+  if (!options.fromDecision && fileClaim.finalDecision?.resolutionType === "PENALTY_APPLIED") {
+    throw new ApiError(400, "This claim's penalty is applied through 'Execute decision', not manually.");
+  }
+
+  // The penalty must belong to a claim on this same service
+  if (String(fileClaim.serviceId) !== String(serviceId)) {
+    throw new ApiError(400, "This claim does not belong to the given service.");
   }
 
   const percentValue = parseFloat(amountPercent);
@@ -949,6 +977,126 @@ const statusServicesDetails = async (req) => {
   return service;
 };
 
+// Admin-confirmed execution of a resolved claim's money decision.
+// Nothing moves money until the admin sends confirm: true.
+const executeClaimDecision = async (req) => {
+  const { claimId, confirm } = req.body;
+  const { userId, emailAuth } = req.user;
+
+  if (!claimId || !mongoose.isValidObjectId(claimId)) {
+    throw new ApiError(400, "Valid claimId is required");
+  }
+  if (confirm !== true) {
+    throw new ApiError(400, "Admin confirmation (confirm: true) is required before money is moved");
+  }
+
+  const claim = await FileClaim.findById(claimId);
+  if (!claim) throw new ApiError(404, "Claim not found");
+  if (claim.status !== "resolved") {
+    throw new ApiError(400, "Claim must be resolved before its decision can be executed");
+  }
+
+  const decision = claim.finalDecision || {};
+  if (!["REFUND", "PENALTY_APPLIED"].includes(decision.resolutionType)) {
+    throw new ApiError(400, "This decision does not move money");
+  }
+  const amount = Number(decision.penaltyOrRefundAmount || 0);
+  if (!(amount > 0)) {
+    throw new ApiError(400, "Decision amount must be greater than zero");
+  }
+
+  // Lock first so the same decision cannot run twice
+  const locked = await FileClaim.findOneAndUpdate(
+    { _id: claimId, "finalDecision.executed": { $ne: true } },
+    {
+      $set: {
+        "finalDecision.executed": true,
+        "finalDecision.executedAt": new Date(),
+        "finalDecision.executedBy": userId,
+      },
+    },
+    { new: true },
+  );
+  if (!locked) {
+    throw new ApiError(409, "This decision has already been executed");
+  }
+
+  try {
+    const transaction = await Transaction.findOne({ serviceId: claim.serviceId, active: true });
+    if (!transaction || transaction.paymentStatus !== "Completed") {
+      throw new ApiError(400, "No completed payment found for this service");
+    }
+
+    let reference;
+    if (decision.resolutionType === "REFUND") {
+      if (transaction.paymentMethod !== "Stripe") {
+        throw new ApiError(400, "Automatic refund is supported only for Stripe payments");
+      }
+      if (amount > Number(transaction.amount)) {
+        throw new ApiError(400, "Refund amount is more than the amount paid");
+      }
+      const refund = await stripe.refunds.create({
+        payment_intent: transaction.transactionId,
+        amount: Math.round(amount * 100),
+      });
+      reference = refund.id;
+    } else {
+      // Penalty goes through applyPenaltyPercent so the wallet and fine record stay consistent
+      const percent = (amount / Number(transaction.partnerAmount)) * 100;
+      if (!(percent > 0 && percent <= 100)) {
+        throw new ApiError(400, "Penalty amount is more than the partner amount");
+      }
+      await applyPenaltyPercent(
+        {
+          body: {
+            serviceId: String(claim.serviceId),
+            amountPercent: percent,
+            reason: decision.decisionNotes || claim.claimType,
+            id: String(claim._id),
+          },
+        },
+        { fromDecision: true },
+      );
+      reference = "penalty-applied";
+    }
+
+    await FileClaim.updateOne(
+      { _id: claimId },
+      { $set: { "finalDecision.executionRef": reference } },
+    );
+
+    await recordTraceability({
+      actorId: userId,
+      actorRole: "Admin",
+      actorEmail: emailAuth,
+      actionType: "CLAIM_DECISION_EXECUTED",
+      targetEntity: "FileClaim",
+      targetId: claim._id,
+      metaData: { resolutionType: decision.resolutionType, amount, reference },
+    });
+
+    return { claimId, resolutionType: decision.resolutionType, amount, reference };
+  } catch (error) {
+    // Nothing (or not everything) moved: unlock so an admin can retry after fixing the cause
+    await FileClaim.updateOne(
+      { _id: claimId },
+      {
+        $set: { "finalDecision.executed": false },
+        $unset: { "finalDecision.executedAt": "", "finalDecision.executedBy": "" },
+      },
+    );
+    throw error;
+  }
+};
+
+// Claims filed by the logged-in user or partner (their own claims only)
+const getMyFileClaims = async (req) => {
+  const { userId } = req.user;
+  return FileClaim.find({ user: userId })
+    .sort({ createdAt: -1 })
+    .populate({ path: "serviceId", select: "status claimStatus" });
+};
+
 const BidService = {
   partnerBidPost,
   partnerAllBids,
@@ -966,6 +1114,8 @@ const BidService = {
   applyPenaltyPercent,
   statusServicesDetails,
   getAllFileClaims,
+  getMyFileClaims,
+  executeClaimDecision,
 };
 
 module.exports = { BidService };

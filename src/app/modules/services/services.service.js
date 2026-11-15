@@ -1078,6 +1078,10 @@ const updateServicesStatusUser = async (req) => {
     }
 
     if (status === "delivery-confirmed") {
+      // Hold payout while a claim on this service is still open
+      if (["pending", "in-progress"].includes(service.claimStatus)) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Payout is on hold because a claim is open for this service.");
+      }
       const amount = Number(transaction.partnerAmount);
       receivedUser.wallet = (receivedUser.wallet || 0) + amount;
       await receivedUser.save();
@@ -1314,6 +1318,10 @@ const updateSellServicesStatusPartner = async (req) => {
 
   try {
     if (status === "delivery-confirmed") {
+      // Hold payout while a claim on this service is still open
+      if (["pending", "in-progress"].includes(service.claimStatus)) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Payout is on hold because a claim is open for this service.");
+      }
       const amount = Number(transaction.partnerAmount);
       // console.log("===========amount", amount)
       receivedUser.wallet = (receivedUser.wallet || 0) + amount;
@@ -1483,7 +1491,12 @@ const uploadStatusImage = async (req) => {
       console.log('==========IN===========')
       service.partner_status = "delivered";
       await service.save();
-      await updateServicesStatus("delivery-confirmed", serviceId)
+      try {
+        await updateServicesStatus("delivery-confirmed", serviceId);
+      } catch (payoutError) {
+        // Payout held (e.g. open claim) must not fail the delivery upload itself
+        console.warn("Delivery payout not released:", payoutError.message);
+      }
       console.log('==========DONE===========')
       return;
     }
@@ -1527,6 +1540,10 @@ const updateServicesStatus = async (status, serviceId) => {
     }
 
     if (status === "delivery-confirmed") {
+      // Hold payout while a claim on this service is still open
+      if (["pending", "in-progress"].includes(service.claimStatus)) {
+        throw new ApiError(httpStatus.BAD_REQUEST, "Payout is on hold because a claim is open for this service.");
+      }
       const amount = Number(transaction.partnerAmount);
       receivedUser.wallet = (receivedUser.wallet || 0) + amount;
       await receivedUser.save();

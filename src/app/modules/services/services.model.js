@@ -174,6 +174,17 @@ const ServicesSchema = new Schema(
       ],
       default: "pending",
     },
+    // Dispute state of the service, kept in sync with its active FileClaim
+    claimStatus: {
+      type: String,
+      enum: ["none", "pending", "in-progress", "resolved", "rejected"],
+      default: "none",
+    },
+    activeClaimId: {
+      type: mongoose.Schema.ObjectId,
+      ref: "FileClaim",
+      default: null,
+    },
     user_status: {
       type: String,
       enum: [

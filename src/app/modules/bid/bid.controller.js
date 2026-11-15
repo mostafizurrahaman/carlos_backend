@@ -168,6 +168,26 @@ const getAllFileClaims = catchAsync(async (req, res) => {
   });
 });
 
+const executeClaimDecision = catchAsync(async (req, res) => {
+  const result = await BidService.executeClaimDecision(req);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Claim decision executed successfully",
+    data: result,
+  });
+});
+
+const getMyFileClaims = catchAsync(async (req, res) => {
+  const result = await BidService.getMyFileClaims(req);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "My claims fetched successfully",
+    data: result,
+  });
+});
+
 const BidController = {
   partnerBidPost,
   partnerAllBids,
@@ -185,6 +205,8 @@ const BidController = {
   applyPenaltyPercent,
   statusServicesDetails,
   getAllFileClaims,
+  getMyFileClaims,
+  executeClaimDecision,
 };
 
 module.exports = { BidController };
