@@ -104,6 +104,16 @@ const createFileClaim = catchAsync(async (req, res) => {
   });
 });
 
+const contestClaim = catchAsync(async (req, res) => {
+  const result = await BidService.contestClaim(req);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Claim contest/response submitted successfully",
+    data: result,
+  });
+});
+
 // Admin adds internal review note to a claim (Feature 11)
 const addAdminClaimNote = catchAsync(async (req, res) => {
   const { claimId } = req.params;
@@ -199,6 +209,7 @@ const BidController = {
   getBitProfilePartner,
   orderDetailsPageFileClaim,
   createFileClaim,
+  contestClaim,
   addAdminClaimNote,
   resolveAdminClaim,
   updateStatusFileClaim,

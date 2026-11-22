@@ -659,6 +659,85 @@ const addAdminClaimNote = async (claimId, note, adminUser) => {
   return claim;
 };
 
+const contestClaim = async (req) => {
+  const claimId = req.params?.claimId || req.body?.claimId || req.query?.claimId;
+  const { responseNotes } = req.body;
+  const { userId, role, emailAuth } = req.user;
+  const { contestImages, fileClaimImage } = req.files || {};
+
+  if (!claimId || !mongoose.isValidObjectId(claimId)) {
+    throw new ApiError(400, "Valid claimId is required.");
+  }
+
+  const claim = await FileClaim.findById(claimId);
+  if (!claim) {
+    throw new ApiError(404, "Claim not found.");
+  }
+
+  // Ensure caller is the confirmed partner, claim user, or admin
+  const service = await Services.findById(claim.serviceId).select("confirmedPartner user").lean();
+  const isAuthorized =
+    String(service?.confirmedPartner) === String(userId) ||
+    String(claim.user) === String(userId) ||
+    role === "ADMIN" ||
+    role === "SUPER_ADMIN";
+
+  if (!isAuthorized) {
+    throw new ApiError(403, "Not authorized to contest this claim.");
+  }
+
+  const rawImages = contestImages || fileClaimImage;
+  let images = [];
+  if (rawImages && Array.isArray(rawImages)) {
+    images = rawImages.map((file) => `/images/file-claim/${file.filename}`);
+  }
+
+  claim.partnerResponse = {
+    responseNotes: responseNotes || "",
+    contestImages: images,
+    respondedAt: new Date(),
+    partnerId: userId,
+  };
+  claim.status = "in-progress";
+  await claim.save();
+
+  // Keep service dispute state in sync
+  await Services.findByIdAndUpdate(claim.serviceId, { claimStatus: "in-progress" });
+
+  // Record traceability log
+  await recordTraceability({
+    actorId: userId,
+    actorRole: role,
+    actorEmail: emailAuth,
+    actionType: "CLAIM_CONTESTED",
+    targetEntity: "FileClaim",
+    targetId: claim._id,
+    metaData: { responseNotes, imageCount: images.length },
+  });
+
+  // Notify claimant / counterparty
+  const otherUser = claim.userType === "User" ? claim.user : service?.confirmedPartner;
+  if (otherUser) {
+    await NotificationService.sendNotification({
+      title: {
+        eng: "Claim Response Received",
+        span: "Respuesta a la Reclamación Recibida",
+      },
+      message: {
+        eng: `The partner has contested / submitted evidence for Claim #${String(claim._id).slice(-6)}.`,
+        span: `El socio ha presentado pruebas/respuesta para la Reclamación #${String(claim._id).slice(-6)}.`,
+      },
+      user: otherUser,
+      userType: "User",
+      types: "claim",
+      getId: claim.serviceId,
+      serviceId: claim.serviceId,
+    });
+  }
+
+  return claim;
+};
+
 // Admin finalizes and resolves a claim with a formal decision
 const resolveAdminClaim = async (req) => {
   const { claimId, resolutionType, decisionNotes, penaltyOrRefundAmount } =
@@ -1188,6 +1267,7 @@ const BidService = {
   getBitProfilePartner,
   orderDetailsPageFileClaim,
   createFileClaim,
+  contestClaim,
   addAdminClaimNote, // Added
   resolveAdminClaim, // Added
   updateStatusFileClaim,

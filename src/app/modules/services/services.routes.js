@@ -123,6 +123,17 @@ router
     BidController.createFileClaim,
   )
   .post(
+    "/contest-claim",
+    uploadFile(),
+    auth(
+      ENUM_USER_ROLE.PARTNER,
+      ENUM_USER_ROLE.USER,
+      ENUM_USER_ROLE.ADMIN,
+      ENUM_USER_ROLE.SUPER_ADMIN,
+    ),
+    BidController.contestClaim,
+  )
+  .post(
     "/upload-status-image",
     uploadFile(),
     ServicesController.uploadStatusImage

@@ -9,6 +9,8 @@ const sendNotificationOnesignal = async (playerIds, title, message, types, getId
 
   switch (types) {
     case "service":
+    case "claim":
+    case "file-claim":
       router = "serviceDetails";
       break;
     case "reschedule":

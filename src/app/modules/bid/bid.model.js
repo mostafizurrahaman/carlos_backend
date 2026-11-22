@@ -119,6 +119,13 @@ const fileClaimSchema = new Schema(
       enum: ["pending", "in-progress", "resolved", "rejected"],
       default: "pending",
     },
+    // Partner contest / response to claim
+    partnerResponse: {
+      responseNotes: String,
+      contestImages: [String],
+      respondedAt: Date,
+      partnerId: { type: mongoose.Schema.ObjectId, ref: "Partner" },
+    },
     // Internal admin review notes
     adminNotes: [
       {
