@@ -109,7 +109,17 @@ const contestClaim = catchAsync(async (req, res) => {
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "Claim contest/response submitted successfully",
+    message: "Your contest has been submitted. Our team will review it.",
+    data: result,
+  });
+});
+
+const getServiceOffers = catchAsync(async (req, res) => {
+  const result = await BidService.getServiceOffers(req);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Offers retrieved successfully",
     data: result,
   });
 });
@@ -210,6 +220,7 @@ const BidController = {
   orderDetailsPageFileClaim,
   createFileClaim,
   contestClaim,
+  getServiceOffers,
   addAdminClaimNote,
   resolveAdminClaim,
   updateStatusFileClaim,

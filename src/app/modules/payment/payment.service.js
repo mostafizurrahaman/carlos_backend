@@ -15,7 +15,7 @@ const VariableCount = require("../variable/variable.count");
 const { ServicesService } = require("../services/services.service");
 const { Bids } = require("../bid/bid.model");
 const { NotificationService } = require("../notification/notification.service");
-const { calculateCategoryMarkup } = require("../../../helpers/calculateCategoryMarkup");
+const { calculateCategoryMarkup, getUserFacingPrice } = require("../../../helpers/calculateCategoryMarkup");
 const { default: mongoose } = require("mongoose");
 
 const DOMAIN_URL = process.env.RESET_PASS_UI_LINK;
@@ -26,7 +26,8 @@ const createCheckoutSessionStripe = async (req) => {
     const { serviceId, price, currency, partnerId } = req.body;
     const { userId, role } = req.user;
 
-    if (!currency || !Number(price) || !serviceId || !partnerId) {
+    // "price" is accepted for backward compatibility but is never used for the charge
+    if (!currency || !serviceId || !partnerId) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Missing required fields.');
     }
 
@@ -98,9 +99,43 @@ const createCheckoutSessionStripe = async (req) => {
       throw new ApiError(httpStatus.BAD_REQUEST, "Payment Receive Back Account Not Found.");
     }
 
-    console.log("price====", currency, price)
+    // Only the right party may pay: the customer for a move, the buying partner for a sell
+    if (service.mainService === "move" && String(service.user) !== String(userId)) {
+      throw new ApiError(httpStatus.FORBIDDEN, "You can only pay for your own service.");
+    }
+    if (service.mainService === "sell" && String(partnerId) !== String(userId)) {
+      throw new ApiError(httpStatus.FORBIDDEN, "You can only pay for your own offer.");
+    }
 
-    const unitAmount = Number(price) * 100;
+    // Amount comes from the DB, never from the app's "price".
+    // move: customer pays bid + markup (same number as Offers / order-details).
+    // sell: buying partner pays their bid; the seller gets bid - markup on success.
+    const chargeMxn =
+      service.mainService === "move"
+        ? await getUserFacingPrice(service, bidDetails.price)
+        : Number(bidDetails.price);
+
+    const normalizedCurrency = String(currency).toLowerCase();
+    let chargeAmount;
+    if (normalizedCurrency === "mxn") {
+      chargeAmount = chargeMxn;
+    } else if (normalizedCurrency === "usd") {
+      const { dollarCost } = await VariableCount.convertPesoToDollar(chargeMxn);
+      chargeAmount = dollarCost;
+    } else {
+      throw new ApiError(httpStatus.BAD_REQUEST, "Unsupported currency.");
+    }
+
+    if (Math.abs(Number(price) - chargeAmount) > 0.01) {
+      console.warn(
+        `[Stripe] Client price ${price} differs from DB amount ${chargeAmount} for service ${serviceId}; charging DB amount.`
+      );
+    }
+
+    const unitAmount = Math.round(chargeAmount * 100);
+    if (!(unitAmount > 0)) {
+      throw new ApiError(httpStatus.BAD_REQUEST, "Invalid amount for this service.");
+    }
 
     let session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -118,12 +153,13 @@ const createCheckoutSessionStripe = async (req) => {
         stripeAccountId: bankAccount?.stripeAccountId,
         partnerId: partnerId,
         winBid: bidDetails.price,
+        chargedAmount: chargeAmount,
       },
       line_items: [
         {
           price_data: {
-            currency: currency,
-            unit_amount: Number(parseFloat(unitAmount).toFixed(2)),
+            currency: normalizedCurrency,
+            unit_amount: unitAmount,
             product_data: {
               name: service.service,
               description: `Service ID: ${serviceId} | ${service.description}`,

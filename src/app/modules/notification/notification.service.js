@@ -107,7 +107,7 @@ const sendNotification = async ({ title, message, user, userType, getId, types, 
       return;
     }
     // Send notification via OneSignal
-   const data =  await sendNotificationOnesignal(playerIds, title, message, types, getId, notice); 
+   const data =  await sendNotificationOnesignal(playerIds, title, message, types, getId, notice, serviceId); 
 
     return notification;
   } catch (error) {

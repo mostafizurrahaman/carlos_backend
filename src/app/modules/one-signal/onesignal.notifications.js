@@ -2,15 +2,14 @@ const { default: axios } = require("axios");
 const config = require("../../../config");
 
 
-const sendNotificationOnesignal = async (playerIds, title, message, types, getId, notice) => {
+const sendNotificationOnesignal = async (playerIds, title, message, types, getId, notice, serviceId) => {
   let router = "";
+  const isClaim = typeof types === "string" && types.includes("claim");
 
   console.log("===||= sendNotificationOnesignal =||===", types)
 
   switch (types) {
     case "service":
-    case "claim":
-    case "file-claim":
       router = "serviceDetails";
       break;
     case "reschedule":
@@ -35,7 +34,11 @@ const sendNotificationOnesignal = async (playerIds, title, message, types, getId
       router = "getTicket";
       break;
     default:
-      console.warn("Unknown notification type:", types);
+      if (isClaim) {
+        router = "claim";
+      } else {
+        console.warn("Unknown notification type:", types);
+      }
   }
 
   const data = {
@@ -45,9 +48,11 @@ const sendNotificationOnesignal = async (playerIds, title, message, types, getId
     include_player_ids: playerIds,
     data: {
       route: router,
-      getId: getId || "",
+      getId: getId ? String(getId) : "",
       notice: notice || "",
-
+      ...(serviceId || isClaim
+        ? { serviceId: String(serviceId || getId || "") }
+        : {}),
     }
   };
 

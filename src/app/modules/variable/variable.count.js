@@ -129,12 +129,11 @@ const changeContactNumber = async (req) => {
 };
 
 
+// Never invent a number: return the one the admin set, else SUPPORT_CONTACT_NUMBER from env.
 const getContactNumber = async () => {
-  let contact = await ContactNumber.findOne({});
-  if (!contact) {
-    contact = await ContactNumber.create({ contact: "+52 55 1234 5678" });
-  }
-  return contact;
+  const contact = await ContactNumber.findOne({}).lean();
+  if (contact?.contact) return contact;
+  return { contact: process.env.SUPPORT_CONTACT_NUMBER || null };
 };
 
 const getPisoVariable = async () => {
