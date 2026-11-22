@@ -119,7 +119,25 @@ const fileClaimSchema = new Schema(
       enum: ["pending", "in-progress", "resolved", "rejected"],
       default: "pending",
     },
-    // Partner contest / response to claim
+    // Who filed the claim. Older claims lack it; derive from userType.
+    filedByRole: {
+      type: String,
+      enum: ["USER", "PARTNER", "ADMIN"],
+    },
+    // Contest by the party who did NOT file the claim (once per claim)
+    contest: {
+      type: new Schema(
+        {
+          reason: { type: String, required: true },
+          createdAt: { type: Date, default: Date.now },
+          by: { type: mongoose.Schema.ObjectId, required: true },
+          byRole: { type: String, enum: ["USER", "PARTNER"], required: true },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    // Legacy partner response (kept for old records; new contests use `contest`)
     partnerResponse: {
       responseNotes: String,
       contestImages: [String],

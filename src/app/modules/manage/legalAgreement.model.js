@@ -102,6 +102,8 @@ const systemTraceabilityLogSchema = new Schema(
         "INVOICE_REQUESTED",
         "CLAIM_SUBMITTED",
         "CLAIM_RESOLVED",
+        "CLAIM_CONTESTED",
+        "CLAIM_STATUS_CHANGED",
         "CLAIM_DECISION_EXECUTED",
         "SERVICE_CANCELLED",
         "SERVICE_RESUMED",

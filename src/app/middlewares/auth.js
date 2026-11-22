@@ -19,8 +19,14 @@ const auth =
           "You are not authorized for this role"
         );
       } 
-      if (tokenWithBearer.startsWith("Bearer")) {
-        const token = tokenWithBearer.split(" ")[1]; 
+      {
+        // Accept "Bearer <token>" and a bare token (previously a bare token left the request hanging)
+        const token = tokenWithBearer.startsWith("Bearer")
+          ? tokenWithBearer.split(" ")[1]
+          : tokenWithBearer.trim();
+        if (!token) {
+          throw new ApiError(httpStatus.UNAUTHORIZED, "You are not authorized for this role");
+        }
        // Verify token 
         const verifyUser = jwtHelpers.verifyToken(token, config.jwt.secret); 
         // Set user to headers

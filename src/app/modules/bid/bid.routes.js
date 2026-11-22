@@ -10,6 +10,12 @@ router
     auth(ENUM_USER_ROLE.PARTNER),
     BidController.partnerBidPost,
   )
+  // Offers on a service. USER gets the same final price as order-details / Stripe.
+  .get(
+    "/post/:serviceId",
+    auth(ENUM_USER_ROLE.USER, ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN, ENUM_USER_ROLE.SUPER_ADMIN),
+    BidController.getServiceOffers,
+  )
   .get(
     "/get_by_partner",
     auth(ENUM_USER_ROLE.PARTNER, ENUM_USER_ROLE.ADMIN),

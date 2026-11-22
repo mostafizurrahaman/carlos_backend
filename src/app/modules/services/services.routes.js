@@ -124,13 +124,8 @@ router
   )
   .post(
     "/contest-claim",
+    auth(ENUM_USER_ROLE.USER, ENUM_USER_ROLE.PARTNER),
     uploadFile(),
-    auth(
-      ENUM_USER_ROLE.PARTNER,
-      ENUM_USER_ROLE.USER,
-      ENUM_USER_ROLE.ADMIN,
-      ENUM_USER_ROLE.SUPER_ADMIN,
-    ),
     BidController.contestClaim,
   )
   .post(

@@ -97,7 +97,13 @@ const ENUM_NOTIFICATION_TYPE = {
   ONGOING: 'ongoing',
   RESCHEDULE: 'reschedule',
   COMPLETE_STATUS:"complete-status",
-  SERVICE_PAYMENT:"service_payment"
+  SERVICE_PAYMENT:"service_payment",
+  // Claims: the app routes any type containing "claim" to the Claims screen
+  CLAIM: "claim",
+  CLAIM_IN_PROGRESS: "claim_in_progress",
+  CLAIM_RESOLVED: "claim_resolved",
+  CLAIM_REJECTED: "claim_rejected",
+  CLAIM_CONTESTED: "claim_contested",
 };
 const ENUM_PAYMENT_STATUS = {};
 

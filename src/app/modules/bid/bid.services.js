@@ -19,8 +19,97 @@ const config = require("../../../config");
 const stripe = require("stripe")(config.stripe.stripe_secret_key);
 const {
   calculateCategoryMarkup,
+  getUserFacingPrice,
 } = require("../../../helpers/calculateCategoryMarkup");
 const { recordTraceability } = require("../../../helpers/traceabilityLogger");
+const {
+  OPEN_CLAIM_STATUSES,
+  syncServiceClaimStatus,
+  fillMissingClaimStatus,
+} = require("../../../helpers/claimStatus");
+
+// =======================================================
+// Claim helpers: parties and notifications
+// =======================================================
+const claimRef = (serviceId) => `#${String(serviceId).slice(-6)}`;
+
+// Older claims have no filedByRole; derive it from userType.
+const getFiledByRole = (claim) =>
+  claim.filedByRole || (claim.userType === "Partner" ? "PARTNER" : "USER");
+
+const getClaimParties = (service) => ({
+  USER: service?.user ? { id: service.user._id || service.user, type: "User" } : null,
+  PARTNER: service?.confirmedPartner
+    ? { id: service.confirmedPartner._id || service.confirmedPartner, type: "Partner" }
+    : null,
+});
+
+const notifyClaimRecipient = (recipient, { types, serviceId, title, message }) => {
+  if (!recipient?.id) return null;
+  return NotificationService.sendNotification({
+    title,
+    message,
+    user: recipient.id,
+    userType: recipient.type,
+    types,
+    // The app reads getId first; both carry the SERVICE id, never the claim id.
+    getId: serviceId,
+    serviceId,
+  });
+};
+
+const notifyAdminsAboutClaim = ({ title, message, serviceId }) =>
+  Notification.create({
+    title,
+    message,
+    userType: "Admin",
+    types: "claim",
+    admin: true,
+    getId: serviceId,
+    serviceId,
+  }).catch((err) => console.error("[Claim admin notification]", err.message));
+
+const CLAIM_STATUS_TEXT = {
+  "in-progress": {
+    types: "claim_in_progress",
+    title: { eng: "Claim Under Review", span: "Reclamación en Revisión" },
+    eng: (ref) => `The claim for Service ${ref} is now under review by our team.`,
+    span: (ref) => `La reclamación del Servicio ${ref} está siendo revisada por nuestro equipo.`,
+  },
+  resolved: {
+    types: "claim_resolved",
+    title: { eng: "Claim Resolved", span: "Reclamación Resuelta" },
+    eng: (ref) => `The claim for Service ${ref} has been resolved.`,
+    span: (ref) => `La reclamación del Servicio ${ref} ha sido resuelta.`,
+  },
+  rejected: {
+    types: "claim_rejected",
+    title: { eng: "Claim Rejected", span: "Reclamación Rechazada" },
+    eng: (ref) => `The claim for Service ${ref} has been rejected.`,
+    span: (ref) => `La reclamación del Servicio ${ref} ha sido rechazada.`,
+  },
+};
+
+// Status change (in-progress / resolved / rejected) -> notify BOTH parties.
+const notifyClaimStatusChange = async (claim, status) => {
+  const text = CLAIM_STATUS_TEXT[status];
+  if (!text) return;
+  const service = await Services.findById(claim.serviceId)
+    .select("user confirmedPartner")
+    .lean();
+  const parties = getClaimParties(service);
+  const ref = claimRef(claim.serviceId);
+  const payload = {
+    types: text.types,
+    serviceId: claim.serviceId,
+    title: text.title,
+    message: { eng: text.eng(ref), span: text.span(ref) },
+  };
+  await Promise.all([
+    notifyClaimRecipient(parties.USER, payload),
+    notifyClaimRecipient(parties.PARTNER, payload),
+  ]);
+};
 
 // =======================================================
 // 1. Partner Bid Placement with Category-Specific Markup
@@ -187,22 +276,8 @@ const getBitProfilePartner = async (req) => {
     throw new ApiError(404, "Bids not found!");
   }
 
-  const categoryId = Array.isArray(bids.service?.category)
-    ? bids.service.category[0]
-    : bids.service?.category;
-
-  const categoryMarkup = await calculateCategoryMarkup(categoryId, bids.price);
-
-  if (role === ENUM_USER_ROLE.USER && bids.service?.mainService === "move") {
-    if (bids.price) {
-      bids.price = Number(bids.price) + categoryMarkup;
-    }
-  }
-
-  if (role === ENUM_USER_ROLE.USER && bids.service?.mainService === "sell") {
-    if (bids.price) {
-      bids.price = Number(bids.price) - categoryMarkup;
-    }
+  if (role === ENUM_USER_ROLE.USER && bids.price && bids.service) {
+    bids.price = await getUserFacingPrice(bids.service, bids.price);
   }
 
   const partnerId = bids.partner._id;
@@ -357,23 +432,9 @@ const orderDetailsPageFileClaim = async (req) => {
     throw new ApiError(404, "Service not found");
   }
 
-  const categoryId = Array.isArray(service.category)
-    ? service.category[0]?._id
-    : service.category?._id;
-  const categoryMarkup = await calculateCategoryMarkup(
-    categoryId,
-    service.winBid,
-  );
-
-  if (role === ENUM_USER_ROLE.USER && service.mainService === "move") {
-    if (service.winBid) {
-      service.winBid = Number(service.winBid) + categoryMarkup;
-    }
-  }
-  if (role === ENUM_USER_ROLE.USER && service.mainService === "sell") {
-    if (service.winBid) {
-      service.winBid = Number(service.winBid) - categoryMarkup;
-    }
+  // Same final price as the Offers screen and the Stripe charge
+  if (role === ENUM_USER_ROLE.USER && service.winBid) {
+    service.winBid = await getUserFacingPrice(service, service.winBid);
   }
 
   const payment = await Transaction.findOne({ serviceId, active: true }).select(
@@ -549,15 +610,25 @@ const createFileClaim = async (req) => {
 
   let user;
   let userType = "User";
+  let filedByRole;
   if (role === "USER") {
+    if (String(service.user) !== String(userId)) {
+      throw new ApiError(403, "You can only file a claim on your own service.");
+    }
     user = await User.findById(userId);
     userType = "User";
+    filedByRole = "USER";
   } else if (role === "PARTNER") {
+    if (String(service.confirmedPartner) !== String(userId)) {
+      throw new ApiError(403, "You can only file a claim on a service assigned to you.");
+    }
     user = await Partner.findById(userId);
     userType = "Partner";
+    filedByRole = "PARTNER";
   } else if (role === "ADMIN" || role === "SUPER_ADMIN") {
     user = { name: `Admin (${emailAuth || "XM Support"})` };
     userType = "User";
+    filedByRole = "ADMIN";
   } else {
     throw new ApiError(403, "Unauthorized to perform this action.");
   }
@@ -575,14 +646,12 @@ const createFileClaim = async (req) => {
         : Boolean(isDuringActiveService),
     description,
     userType,
+    filedByRole,
     status: "pending",
   });
 
   // Mark the service as disputed so its flow and lists reflect the claim
-  await Services.findByIdAndUpdate(serviceId, {
-    claimStatus: "pending",
-    activeClaimId: result._id,
-  });
+  await syncServiceClaimStatus(serviceId);
 
   // Record digital traceability for the claim submission
   await recordTraceability({
@@ -605,29 +674,38 @@ const createFileClaim = async (req) => {
       span: `${user.name} ha enviado una nueva reclamación de ${claimType} para el Servicio ID: ${serviceId}.`,
     },
     userType: "Admin",
-    types: "none",
+    types: "claim",
     admin: true,
+    getId: service._id,
+    serviceId: service._id,
   });
 
-  // Notify confirmed partner if user filed the claim
-  const serviceObj = await Services.findById(serviceId).select("confirmedPartner").lean();
-  if (serviceObj && serviceObj.confirmedPartner) {
-    await NotificationService.sendNotification({
-      title: {
-        eng: "Claim Filed on Service",
-        span: "Reclamación Presentada en el Servicio",
-      },
-      message: {
-        eng: `A ${claimType} claim has been filed for Service #${String(serviceId).slice(-6)}. Payout is temporarily on hold.`,
-        span: `Se ha presentado una reclamación por ${claimType} para el Servicio #${String(serviceId).slice(-6)}. El pago está retenido temporalmente.`,
-      },
-      user: serviceObj.confirmedPartner,
-      userType: "Partner",
-      types: "service",
-      getId: serviceId,
-      serviceId: serviceId,
-    });
-  }
+  // Notify the OTHER party (user files -> partner, partner files -> user).
+  // A claim filed by an admin goes to both parties.
+  const parties = getClaimParties(service);
+  const recipients =
+    filedByRole === "USER"
+      ? [parties.PARTNER]
+      : filedByRole === "PARTNER"
+        ? [parties.USER]
+        : [parties.USER, parties.PARTNER];
+  const ref = claimRef(service._id);
+  await Promise.all(
+    recipients.map((recipient) =>
+      notifyClaimRecipient(recipient, {
+        types: "claim",
+        serviceId: service._id,
+        title: {
+          eng: "Claim Filed on Your Service",
+          span: "Reclamación Presentada en tu Servicio",
+        },
+        message: {
+          eng: `A claim has been filed for Service ${ref}. You can review it and contest it in the Claims tab.`,
+          span: `Se ha presentado una reclamación para el Servicio ${ref}. Puedes revisarla e impugnarla en la pestaña Reclamaciones.`,
+        },
+      }),
+    ),
+  );
 
   return result;
 };
@@ -659,52 +737,60 @@ const addAdminClaimNote = async (claimId, note, adminUser) => {
   return claim;
 };
 
+// Contest a claim. Only the party who did NOT file it, only while open, only once.
+// Every rule failure is a 400 with a message the app shows to the user as-is.
 const contestClaim = async (req) => {
-  const claimId = req.params?.claimId || req.body?.claimId || req.query?.claimId;
-  const { responseNotes } = req.body;
+  const { claimId } = req.body || {};
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
   const { userId, role, emailAuth } = req.user;
-  const { contestImages, fileClaimImage } = req.files || {};
 
+  if (![ENUM_USER_ROLE.USER, ENUM_USER_ROLE.PARTNER].includes(role)) {
+    throw new ApiError(400, "Only the user or the partner of the service can contest a claim.");
+  }
   if (!claimId || !mongoose.isValidObjectId(claimId)) {
-    throw new ApiError(400, "Valid claimId is required.");
+    throw new ApiError(400, "A valid claim is required.");
+  }
+  if (reason.length < 10 || reason.length > 1000) {
+    throw new ApiError(400, "Please write a reason between 10 and 1000 characters.");
   }
 
   const claim = await FileClaim.findById(claimId);
   if (!claim) {
-    throw new ApiError(404, "Claim not found.");
+    throw new ApiError(400, "This claim no longer exists.");
   }
 
-  // Ensure caller is the confirmed partner, claim user, or admin
-  const service = await Services.findById(claim.serviceId).select("confirmedPartner user").lean();
-  const isAuthorized =
-    String(service?.confirmedPartner) === String(userId) ||
-    String(claim.user) === String(userId) ||
-    role === "ADMIN" ||
-    role === "SUPER_ADMIN";
-
-  if (!isAuthorized) {
-    throw new ApiError(403, "Not authorized to contest this claim.");
+  const service = await Services.findById(claim.serviceId)
+    .select("user confirmedPartner")
+    .lean();
+  const parties = getClaimParties(service);
+  const callerParty = parties[role];
+  if (!callerParty || String(callerParty.id) !== String(userId)) {
+    throw new ApiError(400, "You are not part of this service, so you cannot contest this claim.");
   }
 
-  const rawImages = contestImages || fileClaimImage;
-  let images = [];
-  if (rawImages && Array.isArray(rawImages)) {
-    images = rawImages.map((file) => `/images/file-claim/${file.filename}`);
+  const filedByRole = getFiledByRole(claim);
+  if (filedByRole === role) {
+    throw new ApiError(400, "You filed this claim, so you cannot contest it.");
+  }
+  if (!OPEN_CLAIM_STATUSES.includes(claim.status)) {
+    throw new ApiError(400, "This claim is already closed and can no longer be contested.");
+  }
+  if (claim.contest?.reason) {
+    throw new ApiError(400, "This claim has already been contested. A claim can only be contested once.");
   }
 
-  claim.partnerResponse = {
-    responseNotes: responseNotes || "",
-    contestImages: images,
-    respondedAt: new Date(),
-    partnerId: userId,
-  };
-  claim.status = "in-progress";
-  await claim.save();
+  const contest = { reason, createdAt: new Date(), by: userId, byRole: role };
 
-  // Keep service dispute state in sync
-  await Services.findByIdAndUpdate(claim.serviceId, { claimStatus: "in-progress" });
+  // Conditional update so two simultaneous requests cannot both contest
+  const updated = await FileClaim.findOneAndUpdate(
+    { _id: claim._id, contest: null, status: { $in: OPEN_CLAIM_STATUSES } },
+    { $set: { contest } },
+    { new: true },
+  );
+  if (!updated) {
+    throw new ApiError(400, "This claim has already been contested. A claim can only be contested once.");
+  }
 
-  // Record traceability log
   await recordTraceability({
     actorId: userId,
     actorRole: role,
@@ -712,30 +798,36 @@ const contestClaim = async (req) => {
     actionType: "CLAIM_CONTESTED",
     targetEntity: "FileClaim",
     targetId: claim._id,
-    metaData: { responseNotes, imageCount: images.length },
+    metaData: { serviceId: claim.serviceId, reason },
   });
 
-  // Notify claimant / counterparty
-  const otherUser = claim.userType === "User" ? claim.user : service?.confirmedPartner;
-  if (otherUser) {
-    await NotificationService.sendNotification({
-      title: {
-        eng: "Claim Response Received",
-        span: "Respuesta a la Reclamación Recibida",
-      },
-      message: {
-        eng: `The partner has contested / submitted evidence for Claim #${String(claim._id).slice(-6)}.`,
-        span: `El socio ha presentado pruebas/respuesta para la Reclamación #${String(claim._id).slice(-6)}.`,
-      },
-      user: otherUser,
-      userType: "User",
-      types: "claim",
-      getId: claim.serviceId,
+  const ref = claimRef(claim.serviceId);
+  const contesterEng = role === ENUM_USER_ROLE.PARTNER ? "The partner" : "The customer";
+  const contesterSpan = role === ENUM_USER_ROLE.PARTNER ? "El socio" : "El cliente";
+
+  // Notify the filer (an admin-filed claim has no app recipient)
+  if (filedByRole !== "ADMIN") {
+    await notifyClaimRecipient(parties[filedByRole], {
+      types: "claim_contested",
       serviceId: claim.serviceId,
+      title: { eng: "Your Claim Was Contested", span: "Tu Reclamación fue Impugnada" },
+      message: {
+        eng: `${contesterEng} has contested your claim for Service ${ref}. Our team will review both sides.`,
+        span: `${contesterSpan} ha impugnado tu reclamación del Servicio ${ref}. Nuestro equipo revisará ambas partes.`,
+      },
     });
   }
 
-  return claim;
+  await notifyAdminsAboutClaim({
+    serviceId: claim.serviceId,
+    title: { eng: "Claim Contested", span: "Reclamación Impugnada" },
+    message: {
+      eng: `${contesterEng} contested the claim on Service ${ref}: "${reason}"`,
+      span: `${contesterSpan} impugnó la reclamación del Servicio ${ref}: "${reason}"`,
+    },
+  });
+
+  return { claimId: updated._id, contest: updated.contest };
 };
 
 // Admin finalizes and resolves a claim with a formal decision
@@ -774,10 +866,7 @@ const resolveAdminClaim = async (req) => {
   await claim.save();
 
   // Keep the service's dispute state in sync with the resolved claim
-  await Services.findByIdAndUpdate(
-    claim.serviceId,
-    { claimStatus: claim.status },
-  );
+  await syncServiceClaimStatus(claim.serviceId);
 
   // Record traceability log for claim resolution
   await recordTraceability({
@@ -790,46 +879,8 @@ const resolveAdminClaim = async (req) => {
     metaData: { resolutionType, penaltyOrRefundAmount, decisionNotes },
   });
 
-  // Notify claimant
-  await NotificationService.sendNotification({
-    title: {
-      eng: "File Claim Resolved",
-      span: "Reclamación Resuelta",
-    },
-    message: {
-      eng: `Your claim has been resolved with decision: ${resolutionType}.`,
-      span: `Su reclamación ha sido resuelta con la decisión: ${resolutionType}.`,
-    },
-    user: claim.user,
-    userType: claim.userType,
-    types: "service",
-    getId: claim.serviceId,
-    serviceId: claim.serviceId,
-  });
-
-  // Also notify the other party on the service
-  const relatedService = await Services.findById(claim.serviceId).select("user confirmedPartner").lean();
-  if (relatedService) {
-    const otherUser = claim.userType === "User" ? relatedService.confirmedPartner : relatedService.user;
-    const otherRole = claim.userType === "User" ? "Partner" : "User";
-    if (otherUser) {
-      await NotificationService.sendNotification({
-        title: {
-          eng: "Claim Resolved on Service",
-          span: "Reclamación Resuelta en el Servicio",
-        },
-        message: {
-          eng: `The claim for Service #${String(claim.serviceId).slice(-6)} has been resolved (${resolutionType}).`,
-          span: `La reclamación para el Servicio #${String(claim.serviceId).slice(-6)} ha sido resuelta (${resolutionType}).`,
-        },
-        user: otherUser,
-        userType: otherRole,
-        types: "service",
-        getId: claim.serviceId,
-        serviceId: claim.serviceId,
-      });
-    }
-  }
+  // Notify BOTH parties of the decision
+  await notifyClaimStatusChange(claim, claim.status);
 
   return claim;
 };
@@ -851,37 +902,31 @@ const updateStatusFileClaim = async (req) => {
   }
 
   try {
+    const previous = await FileClaim.findById(claimId).select("status").lean();
+    if (!previous) {
+      throw new ApiError(404, "File claim not found.");
+    }
+
     const result = await FileClaim.findByIdAndUpdate(
       claimId,
       { status },
       { new: true },
     );
 
-    if (!result) {
-      throw new ApiError(404, "File claim not found.");
-    }
+    // Keep the service's dispute state in sync with its claims
+    await syncServiceClaimStatus(result.serviceId);
 
-    // Keep the service's dispute state in sync with the claim status
-    await Services.findOneAndUpdate(
-      { _id: result.serviceId, activeClaimId: result._id },
-      { claimStatus: status },
-    );
-
-    if (status === "resolved") {
-      await NotificationService.sendNotification({
-        title: {
-          eng: "File Claim Resolved.",
-          span: "Reclamación Resuelta.",
-        },
-        message: {
-          eng: `Your claim against ${result?.userType === "User" ? "partner" : "user"
-            } has been resolved.`,
-          span: `Tu reclamación contra ${result?.userType === "User" ? "el socio" : "el usuario"
-            } ha sido resuelta.`,
-        },
-        user: result.user,
-        userType: result.userType,
-        types: "none",
+    // Status changed to in-progress / resolved / rejected -> notify both parties
+    if (previous.status !== status) {
+      await notifyClaimStatusChange(result, status);
+      await recordTraceability({
+        actorId: userId,
+        actorRole: "Admin",
+        actorEmail: emailAuth,
+        actionType: "CLAIM_STATUS_CHANGED",
+        targetEntity: "FileClaim",
+        targetId: result._id,
+        metaData: { from: previous.status, to: status },
       });
     }
 
@@ -910,7 +955,7 @@ const updateStatusFileClaim = async (req) => {
     await LogsDashboardService.createTaskDB(newTask);
 
     throw new ApiError(
-      error.status || httpStatus.INTERNAL_SERVER_ERROR,
+      error.statusCode || error.status || httpStatus.INTERNAL_SERVER_ERROR,
       error.message ||
       "An error occurred while updating the file claim status.",
     );
@@ -1229,31 +1274,91 @@ const executeClaimDecision = async (req) => {
   }
 };
 
-// Claims filed by or involving the logged-in user or partner
+// Claims on the caller's services.
+// USER: every claim on services the user owns (filed by them or against them).
+// PARTNER: every claim on services assigned to the partner, filed by or against them.
 const getMyFileClaims = async (req) => {
   const { userId, role } = req.user;
-  let filter = { user: userId };
-  if (role === ENUM_USER_ROLE.PARTNER) {
-    const partnerServices = await Services.find({ confirmedPartner: userId }).select("_id").lean();
-    const serviceIds = partnerServices.map((s) => s._id);
-    filter = {
-      $or: [
-        { user: userId },
-        { serviceId: { $in: serviceIds } },
-      ],
-    };
-  }
-  return FileClaim.find(filter)
-    .select("-adminNotes")
+  const serviceFilter =
+    role === ENUM_USER_ROLE.PARTNER ? { confirmedPartner: userId } : { user: userId };
+  const serviceIds = await Services.find(serviceFilter).distinct("_id");
+
+  const claims = await FileClaim.find({
+    $or: [{ user: userId }, { serviceId: { $in: serviceIds } }],
+  })
+    .select("-adminNotes -finalDecision.resolvedBy -finalDecision.executedBy")
     .sort({ createdAt: -1 })
     .populate({
       path: "serviceId",
-      select: "status claimStatus service pickup_address drop_off_address user confirmedPartner winBid createdAt",
+      select:
+        "_id status claimStatus activeClaimId service mainService pickup_address drop_off_address user confirmedPartner winBid createdAt",
       populate: [
         { path: "user", select: "name email profile_image" },
         { path: "confirmedPartner", select: "name email profile_image" },
       ],
-    });
+    })
+    .lean();
+
+  await fillMissingClaimStatus(claims.map((c) => c.serviceId).filter(Boolean));
+
+  return claims.map((claim) => {
+    const filedByRole = getFiledByRole(claim);
+    const contest = claim.contest?.reason
+      ? { reason: claim.contest.reason, createdAt: claim.contest.createdAt, byRole: claim.contest.byRole }
+      : null;
+    return {
+      ...claim,
+      filedByRole,
+      filedBy: { _id: claim.user, role: filedByRole },
+      contest,
+      canContest:
+        filedByRole !== role &&
+        OPEN_CLAIM_STATUSES.includes(claim.status) &&
+        !contest,
+    };
+  });
+};
+
+// GET /bids/post/:serviceId - offers for a service.
+// USER sees the final price (same rule as order-details and the Stripe charge).
+const getServiceOffers = async (req) => {
+  const { serviceId } = req.params;
+  const { userId, role } = req.user;
+
+  if (!mongoose.isValidObjectId(serviceId)) {
+    throw new ApiError(400, "Invalid service id.");
+  }
+  const service = await Services.findById(serviceId)
+    .select("user mainService category status confirmedPartner winBid")
+    .lean();
+  if (!service) {
+    throw new ApiError(404, "Service not found");
+  }
+
+  const filter = { service: serviceId };
+  if (role === ENUM_USER_ROLE.USER && String(service.user) !== String(userId)) {
+    throw new ApiError(403, "You can only see offers on your own service.");
+  }
+  if (role === ENUM_USER_ROLE.PARTNER) {
+    filter.partner = userId; // a partner only sees their own offer
+  }
+
+  const bids = await Bids.find(filter)
+    .populate({ path: "partner", select: "_id name profile_image rating" })
+    .sort({ price: -1 })
+    .lean();
+
+  const result =
+    role === ENUM_USER_ROLE.USER
+      ? await Promise.all(
+          bids.map(async (bid) => ({
+            ...bid,
+            price: await getUserFacingPrice(service, bid.price),
+          })),
+        )
+      : bids;
+
+  return { serviceId, mainService: service.mainService, bids: result };
 };
 
 const BidService = {
@@ -1275,6 +1380,7 @@ const BidService = {
   statusServicesDetails,
   getAllFileClaims,
   getMyFileClaims,
+  getServiceOffers,
   executeClaimDecision,
 };
 
