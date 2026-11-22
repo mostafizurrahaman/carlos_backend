@@ -87,6 +87,45 @@ El módulo de **Gestión de Reclamaciones (Claims Management)** permite a los ad
 
 ---
 
-## 6. Notificaciones Automáticas
-* Cuando el administrador resuelve un reclamo, **tanto el cliente como el socio reciben una notificación push en sus teléfonos móviles** (`Reclamación Resuelta`).
-* Al pulsar la notificación, la app móvil se abre directamente en los detalles del servicio mostrando el veredicto final.
+## 6. Impugnación de una Reclamación (Contest)
+La parte que **no** presentó la reclamación puede impugnarla desde la app (pestaña *Reclamaciones*), explicando su versión de los hechos.
+
+| Regla | Detalle |
+|---|---|
+| ¿Quién puede impugnar? | Solo la otra parte: si el cliente presentó la reclamación, la impugna el socio, y al revés. |
+| ¿Cuándo? | Solo mientras la reclamación está abierta (*Pending* o *In-Progress*). |
+| ¿Cuántas veces? | Una sola vez por reclamación. |
+| Motivo | Entre 10 y 1000 caracteres. |
+
+**En el panel:** en **Ver Detalles** de la reclamación aparece el bloque **Impugnación** con el motivo, la fecha y quién la presentó (`contest.reason`, `contest.createdAt`, `contest.byRole`). Si no hay impugnación, el bloque no aparece.
+
+**Qué hacer como administrador:**
+1. Lea la reclamación original y la impugnación como dos versiones del mismo hecho.
+2. Compare ambas con las fotos de evidencia, el chat del servicio y el registro de trazabilidad (`CLAIM_CONTESTED`).
+3. Registre su análisis en las **Notas Internas** y emita la resolución formal (Paso 3). Impugnar **no** cambia el estado de la reclamación: la decisión sigue siendo del administrador.
+
+---
+
+## 7. Notificaciones Automáticas
+| Evento | Quién recibe la notificación |
+|---|---|
+| Se presenta una reclamación | La **otra** parte (cliente → socio, socio → cliente) y el panel de administración. |
+| La reclamación pasa a *In-Progress*, *Resolved* o *Rejected* | **Ambas** partes. |
+| Se impugna una reclamación | Quien la presentó y el panel de administración. |
+
+* Al pulsar la notificación, la app abre directamente la reclamación del servicio en la pestaña *Reclamaciones*.
+
+---
+
+## 8. Regla de Precio (Recargo)
+El precio que ve el cliente en **Ofertas**, el de la pantalla de **Pago** y el monto que cobra Stripe se calculan con la misma regla, configurada en **Variable Management**:
+
+| Campo | Valores | Efecto |
+|---|---|---|
+| `markupSource` | `category` (por defecto) | Usa el recargo de *Category Management*; si la categoría no tiene uno, usa el % de *Variable Management*. |
+| | `variable` | Usa siempre el % de *Variable Management*. |
+| | `higher` | Usa el mayor de los dos. |
+| `markupScope` | `all` (por defecto) | Aplica a fletes y a ventas. |
+| | `freight` | Solo a fletes (mudanzas); las ventas no llevan recargo. |
+
+El monto que cobra Stripe se calcula siempre en el servidor a partir de la oferta guardada; nunca se usa el precio que envía la app.

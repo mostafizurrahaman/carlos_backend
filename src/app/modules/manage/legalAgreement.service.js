@@ -8,12 +8,71 @@ const {
 } = require("./legalAgreement.model");
 const { recordTraceability } = require("../../../helpers/traceabilityLogger");
 
+const DOC_TYPES = [
+  "TERMS_AND_CONDITIONS",
+  "PRIVACY_NOTICE",
+  "PARTNER_SERVICE_CONTRACT",
+];
+
+const DOC_TYPE_ALIASES = {
+  terms_of_service: "TERMS_AND_CONDITIONS",
+  "terms-of-service": "TERMS_AND_CONDITIONS",
+  terms: "TERMS_AND_CONDITIONS",
+  terms_and_conditions: "TERMS_AND_CONDITIONS",
+  "terms-and-conditions": "TERMS_AND_CONDITIONS",
+  privacy_policy: "PRIVACY_NOTICE",
+  "privacy-policy": "PRIVACY_NOTICE",
+  privacy: "PRIVACY_NOTICE",
+  privacy_notice: "PRIVACY_NOTICE",
+  "privacy-notice": "PRIVACY_NOTICE",
+  partner_agreement: "PARTNER_SERVICE_CONTRACT",
+  "partner-agreement": "PARTNER_SERVICE_CONTRACT",
+  partner_service_contract: "PARTNER_SERVICE_CONTRACT",
+  "partner-service-contract": "PARTNER_SERVICE_CONTRACT",
+  contract: "PARTNER_SERVICE_CONTRACT",
+};
+
+const normalizeDocType = (type) => {
+  if (!type || typeof type !== "string") return type;
+  const key = type.trim().toLowerCase();
+  return DOC_TYPE_ALIASES[key] || type.trim().toUpperCase();
+};
+
+// "v1.0.0", "1.0" and "1" are the same version
+const normalizeVersion = (version) => {
+  let v = String(version ?? "").trim().toLowerCase().replace(/^v/, "");
+  while (/\.0+$/.test(v)) v = v.replace(/\.0+$/, "");
+  return v;
+};
+
+const getActiveDocs = async (role) => {
+  const types =
+    role === "PARTNER"
+      ? DOC_TYPES
+      : DOC_TYPES.filter((t) => t !== "PARTNER_SERVICE_CONTRACT");
+  const docs = await Promise.all(
+    types.map((type) =>
+      LegalDocument.findOne({ type, isActive: true })
+        .sort({ createdAt: -1 })
+        .select("type version")
+        .lean(),
+    ),
+  );
+  return docs.filter(Boolean);
+};
+
 /**
  * 1. Record legal consent evidence (Terms, Privacy Policy, Partner Contract)
  * Captures IP, user-agent, device metadata, and a snapshot of partner tax/legal info.
+ *
+ * Body: { documentType?, documentTypes?, documentVersion?, deviceInfo? }
+ * - documentType / documentTypes: which documents are accepted. If neither is sent,
+ *   every document the caller still has to accept is accepted.
+ * - documentVersion: optional; when omitted (or equal to the active one) the active
+ *   version is recorded, so the consent status turns false right away.
  */
 const acceptLegalAgreement = async (req) => {
-  const { documentType, documentVersion, deviceInfo } = req.body;
+  const { documentType, documentTypes, documentVersion, deviceInfo } = req.body || {};
   const { userId, authId, role, emailAuth } = req.user;
 
   // Extract client IP and user-agent metadata
@@ -21,24 +80,31 @@ const acceptLegalAgreement = async (req) => {
     req.headers["x-forwarded-for"] || req.socket.remoteAddress || "0.0.0.0";
   const userAgent = req.headers["user-agent"] || "unknown";
 
-  if (!documentType || !documentVersion) {
+  let requestedTypes = [];
+  if (Array.isArray(documentTypes) && documentTypes.length) {
+    requestedTypes = documentTypes.map(normalizeDocType);
+  } else if (documentType) {
+    requestedTypes = [normalizeDocType(documentType)];
+  }
+
+  const invalid = requestedTypes.filter((t) => !DOC_TYPES.includes(t));
+  if (invalid.length) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
-      "documentType and documentVersion are required",
+      `Unknown document type: ${invalid.join(", ")}`,
     );
   }
 
-  const normalizedDocType =
-    {
-      terms_of_service: "TERMS_AND_CONDITIONS",
-      "terms-of-service": "TERMS_AND_CONDITIONS",
-      terms: "TERMS_AND_CONDITIONS",
-      privacy_policy: "PRIVACY_NOTICE",
-      "privacy-policy": "PRIVACY_NOTICE",
-      privacy: "PRIVACY_NOTICE",
-      partner_agreement: "PARTNER_SERVICE_CONTRACT",
-      "partner-agreement": "PARTNER_SERVICE_CONTRACT",
-    }[documentType?.toLowerCase()] || documentType;
+  const activeDocs = await getActiveDocs(role);
+  const activeByType = new Map(activeDocs.map((d) => [d.type, d]));
+
+  if (!requestedTypes.length) {
+    const status = await checkLegalConsentStatus(userId, role);
+    requestedTypes = status.missingDocuments.map((d) => d.type);
+    if (!requestedTypes.length) {
+      return { needLegalConsent: false, accepted: [] };
+    }
+  }
 
   let legalTaxSnapshot = null;
   let userModelType = "User";
@@ -59,39 +125,61 @@ const acceptLegalAgreement = async (req) => {
     };
   }
 
-  // Save digital evidence
-  const evidence = await LegalConsentEvidence.create({
-    userId,
-    authId,
-    userRole: userModelType,
-    documentType: normalizedDocType,
-    documentVersion,
-    accepted: true,
-    ipAddress,
-    userAgent,
-    deviceInfo,
-    legalTaxSnapshot,
-  });
+  const evidences = [];
+  for (const type of requestedTypes) {
+    const active = activeByType.get(type);
+    // Record the active version unless the app explicitly accepted a different one
+    let versionToRecord = active?.version;
+    if (
+      documentVersion &&
+      (!active || normalizeVersion(documentVersion) !== normalizeVersion(active.version))
+    ) {
+      versionToRecord = String(documentVersion);
+    }
+    if (!versionToRecord) {
+      throw new ApiError(
+        httpStatus.BAD_REQUEST,
+        `There is no active ${type} document to accept.`,
+      );
+    }
 
-  // Record audit traceability log
-  await recordTraceability({
-    actorId: userId,
-    actorRole: role,
-    actorEmail: emailAuth,
-    actionType:
-      documentType === "TERMS_AND_CONDITIONS"
-        ? "TERMS_ACCEPTED"
-        : documentType === "PRIVACY_NOTICE"
-          ? "PRIVACY_ACCEPTED"
-          : "CONTRACT_ACCEPTED",
-    targetEntity: "LegalConsentEvidence",
-    targetId: evidence._id,
-    ipAddress,
-    deviceInfo,
-    metaData: { version: documentVersion },
-  });
+    // Save digital evidence
+    const evidence = await LegalConsentEvidence.create({
+      userId,
+      authId,
+      userRole: userModelType,
+      documentType: type,
+      documentVersion: versionToRecord,
+      accepted: true,
+      ipAddress,
+      userAgent,
+      deviceInfo,
+      legalTaxSnapshot,
+    });
 
-  return evidence;
+    // Record audit traceability log
+    await recordTraceability({
+      actorId: userId,
+      actorRole: role,
+      actorEmail: emailAuth,
+      actionType:
+        type === "TERMS_AND_CONDITIONS"
+          ? "TERMS_ACCEPTED"
+          : type === "PRIVACY_NOTICE"
+            ? "PRIVACY_ACCEPTED"
+            : "CONTRACT_ACCEPTED",
+      targetEntity: "LegalConsentEvidence",
+      targetId: evidence._id,
+      ipAddress,
+      deviceInfo,
+      metaData: { version: versionToRecord, clientVersion: documentVersion || null },
+    });
+
+    evidences.push(evidence);
+  }
+
+  // Single document keeps the old response shape (the evidence record)
+  return evidences.length === 1 ? evidences[0] : evidences;
 };
 
 /**
@@ -135,17 +223,7 @@ const getPartnerContractPreview = async (userId) => {
  * 3. Fetch current active legal document by type (Terms, Privacy, Contract)
  */
 const getActiveDocument = async (type) => {
-  const normalizedType =
-    {
-      terms_of_service: "TERMS_AND_CONDITIONS",
-      "terms-of-service": "TERMS_AND_CONDITIONS",
-      terms: "TERMS_AND_CONDITIONS",
-      privacy_policy: "PRIVACY_NOTICE",
-      "privacy-policy": "PRIVACY_NOTICE",
-      privacy: "PRIVACY_NOTICE",
-      partner_agreement: "PARTNER_SERVICE_CONTRACT",
-      "partner-agreement": "PARTNER_SERVICE_CONTRACT",
-    }[type?.toLowerCase()] || type;
+  const normalizedType = normalizeDocType(type);
 
   const doc = await LegalDocument.findOne({
     type: normalizedType,
@@ -163,7 +241,8 @@ const getActiveDocument = async (type) => {
  * 4. Admin API to publish a new version of Terms, Privacy, or Partner Contract
  */
 const createLegalDocument = async (req) => {
-  const { type, version, title, content } = req.body;
+  const { version, title, content } = req.body;
+  const type = normalizeDocType(req.body.type);
   const { userId, emailAuth } = req.user;
 
   if (!type || !version || !content || !title) {
@@ -204,25 +283,10 @@ const createLegalDocument = async (req) => {
  * Returns boolean flags and details of pending documents to accept.
  */
 const checkLegalConsentStatus = async (userId, userRole) => {
-  // 1. Fetch latest active versions of required documents
-  const [activeTerms, activePrivacy, activeContract] = await Promise.all([
-    LegalDocument.findOne({ type: "TERMS_AND_CONDITIONS", isActive: true })
-      .select("version")
-      .lean(),
-    LegalDocument.findOne({ type: "PRIVACY_NOTICE", isActive: true })
-      .select("version")
-      .lean(),
-    userRole === "PARTNER"
-      ? LegalDocument.findOne({
-          type: "PARTNER_SERVICE_CONTRACT",
-          isActive: true,
-        })
-          .select("version")
-          .lean()
-      : Promise.resolve(null),
-  ]);
+  // 1. Latest active version of each required document
+  const activeDocs = await getActiveDocs(userRole);
 
-  // 2. Fetch all consent evidence previously recorded for this user
+  // 2. Everything this user accepted before (type/version compared loosely)
   const acceptedEvidence = await LegalConsentEvidence.find({
     userId,
     accepted: true,
@@ -230,45 +294,16 @@ const checkLegalConsentStatus = async (userId, userRole) => {
     .select("documentType documentVersion")
     .lean();
 
-  const acceptedMap = new Set(
-    acceptedEvidence.map((e) => `${e.documentType}_${e.documentVersion}`),
+  const acceptedSet = new Set(
+    acceptedEvidence.map(
+      (e) => `${normalizeDocType(e.documentType)}_${normalizeVersion(e.documentVersion)}`,
+    ),
   );
 
-  const missingDocuments = [];
-
-  // Check Terms and Conditions
-  if (
-    activeTerms &&
-    !acceptedMap.has(`TERMS_AND_CONDITIONS_${activeTerms.version}`)
-  ) {
-    missingDocuments.push({
-      type: "TERMS_AND_CONDITIONS",
-      requiredVersion: activeTerms.version,
-    });
-  }
-
-  // Check Privacy Notice
-  if (
-    activePrivacy &&
-    !acceptedMap.has(`PRIVACY_NOTICE_${activePrivacy.version}`)
-  ) {
-    missingDocuments.push({
-      type: "PRIVACY_NOTICE",
-      requiredVersion: activePrivacy.version,
-    });
-  }
-
-  // Check Partner Service Contract (Only for Partners)
-  if (
-    userRole === "PARTNER" &&
-    activeContract &&
-    !acceptedMap.has(`PARTNER_SERVICE_CONTRACT_${activeContract.version}`)
-  ) {
-    missingDocuments.push({
-      type: "PARTNER_SERVICE_CONTRACT",
-      requiredVersion: activeContract.version,
-    });
-  }
+  // 3. Consent is needed only for an active version the user has not accepted yet
+  const missingDocuments = activeDocs
+    .filter((doc) => !acceptedSet.has(`${doc.type}_${normalizeVersion(doc.version)}`))
+    .map((doc) => ({ type: doc.type, requiredVersion: doc.version }));
 
   return {
     needLegalConsent: missingDocuments.length > 0,

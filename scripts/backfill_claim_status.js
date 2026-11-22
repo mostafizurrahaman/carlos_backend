@@ -4,6 +4,7 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const Services = require('../src/app/modules/services/services.model');
 const { FileClaim } = require('../src/app/modules/bid/bid.model');
+const { deriveClaimStatus } = require('../src/helpers/claimStatus');
 
 async function backfill() {
   const url = process.env.MONGO_URL;
@@ -23,28 +24,10 @@ async function backfill() {
 
   for (const service of allServices) {
     // Find all claims filed against this service
-    const claims = await FileClaim.find({ serviceId: service._id }).sort({ createdAt: -1 }).lean();
+    const claims = await FileClaim.find({ serviceId: service._id }).sort({ createdAt: -1 }).select('status').lean();
 
-    let targetStatus = "none";
-    let targetClaimId = null;
-
-    if (claims && claims.length > 0) {
-      // Priority 1: Check for open/pending claims
-      const pendingClaim = claims.find(c => c.status === "pending");
-      const inProgressClaim = claims.find(c => c.status === "in-progress");
-
-      if (pendingClaim) {
-        targetStatus = "pending";
-        targetClaimId = pendingClaim._id;
-      } else if (inProgressClaim) {
-        targetStatus = "in-progress";
-        targetClaimId = inProgressClaim._id;
-      } else {
-        // All claims are resolved or rejected; use the latest decision
-        targetStatus = claims[0].status || "resolved";
-        targetClaimId = claims[0]._id;
-      }
-    }
+    const { claimStatus: targetStatus, activeClaimId: targetClaimId } =
+      deriveClaimStatus(claims);
 
     const currentClaimStatus = service.claimStatus || "none";
     const currentClaimId = service.activeClaimId ? String(service.activeClaimId) : null;

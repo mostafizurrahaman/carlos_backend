@@ -14,7 +14,8 @@ const {
 const Variable = require("../variable/variable.model");
 const { Transaction, StripeAccount } = require("../payment/payment.model");
 const { Bids, FileClaim } = require("../bid/bid.model");
-const { calculateCategoryMarkup } = require("../../../helpers/calculateCategoryMarkup");
+const { calculateCategoryMarkup, getUserFacingPrice } = require("../../../helpers/calculateCategoryMarkup");
+const { deriveClaimStatus, fillMissingClaimStatus } = require("../../../helpers/claimStatus");
 const User = require("../user/user.model");
 const { NotificationService } = require("../notification/notification.service");
 const VariableCount = require("../variable/variable.count");
@@ -413,51 +414,22 @@ const getDetails = async (req) => {
     throw new ApiError(404, "Service not found");
   }
 
-  // Ensure claimStatus is always populated accurately even if missing on older documents
-  if (!result.claimStatus || result.claimStatus === "none") {
-    const activeClaim = await FileClaim.findOne({ serviceId }).sort({ createdAt: -1 }).select("status").lean();
-    if (activeClaim) {
-      result.claimStatus = activeClaim.status;
-      result.activeClaimId = activeClaim._id;
-    } else {
-      result.claimStatus = "none";
-      result.activeClaimId = null;
-    }
+  // claimStatus straight from the claims, so old services without the field are correct too
+  const serviceClaims = await FileClaim.find({ serviceId: result._id })
+    .sort({ createdAt: -1 })
+    .select("status")
+    .lean();
+  Object.assign(result, deriveClaimStatus(serviceClaims));
+
+  // USER sees the final price (same rule as Offers, order-details and Stripe)
+  if (role === ENUM_USER_ROLE.USER && Array.isArray(result.bids)) {
+    result.bids = await Promise.all(
+      result.bids.map(async (bid) => ({
+        ...bid,
+        price: await getUserFacingPrice(result, bid.price),
+      }))
+    );
   }
-
-
-  const categoryId = Array.isArray(result.category)
-    ? result.category[0]?._id
-    : result.category?._id;
-
-  if (role === ENUM_USER_ROLE.USER && result.mainService === 'move') {
-    if (result.bids && Array.isArray(result.bids)) {
-      result.bids = await Promise.all(
-        result.bids.map(async (bid) => {
-          const markup = await calculateCategoryMarkup(categoryId, bid.price);
-          return {
-            ...bid,
-            price: Number(bid.price) + markup,
-          };
-        })
-      );
-    }
-  }
-
-  if (role === ENUM_USER_ROLE.USER && result.mainService === 'sell') {
-    if (result.bids && Array.isArray(result.bids)) {
-      result.bids = await Promise.all(
-        result.bids.map(async (bid) => {
-          const markup = await calculateCategoryMarkup(categoryId, bid.price);
-          return {
-            ...bid,
-            price: Number(bid.price) - markup,
-          };
-        })
-      );
-    }
-  }
-
   const pisoVariable = await VariableCount.getPisoVariable();
 
   return { result, piso: pisoVariable };
@@ -853,20 +825,15 @@ const getUserServicesWithinOneHour = async (req) => {
     role === ENUM_USER_ROLE.USER ? getSurcharge() : Promise.resolve(0),
   ]);
 
+  // Every item carries claimStatus ("none" when there is no claim)
+  await fillMissingClaimStatus(servicesResult);
+
   if (role === ENUM_USER_ROLE.USER) {
     return Promise.all(
-      servicesResult.map(async (data) => {
-        const categoryId = Array.isArray(data.category)
-          ? data.category[0]?._id
-          : data.category?._id;
-        const markup = await calculateCategoryMarkup(categoryId, data.winBid);
-        return {
-          ...data,
-          winBid: data.mainService === 'move'
-            ? Number(data.winBid) + markup
-            : Number(data.winBid) - markup,
-        };
-      })
+      servicesResult.map(async (data) => ({
+        ...data,
+        winBid: await getUserFacingPrice(data, data.winBid),
+      }))
     );
   }
   console.log("servicesResult", servicesResult.length)

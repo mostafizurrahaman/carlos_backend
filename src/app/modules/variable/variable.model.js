@@ -37,6 +37,17 @@ const variableSchema = new Schema(
     perDollarMexicanPeso: {
       type: Number,
       default: 1
+    },
+    // Pricing rule (see src/helpers/calculateCategoryMarkup.js)
+    markupSource: {
+      type: String,
+      enum: ["category", "variable", "higher"],
+      default: "category"
+    },
+    markupScope: {
+      type: String,
+      enum: ["all", "freight"],
+      default: "all"
     }
   },
   {
