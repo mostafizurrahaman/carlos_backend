@@ -28,6 +28,18 @@ const acceptLegalAgreement = async (req) => {
     );
   }
 
+  const normalizedDocType =
+    {
+      terms_of_service: "TERMS_AND_CONDITIONS",
+      "terms-of-service": "TERMS_AND_CONDITIONS",
+      terms: "TERMS_AND_CONDITIONS",
+      privacy_policy: "PRIVACY_NOTICE",
+      "privacy-policy": "PRIVACY_NOTICE",
+      privacy: "PRIVACY_NOTICE",
+      partner_agreement: "PARTNER_SERVICE_CONTRACT",
+      "partner-agreement": "PARTNER_SERVICE_CONTRACT",
+    }[documentType?.toLowerCase()] || documentType;
+
   let legalTaxSnapshot = null;
   let userModelType = "User";
 
@@ -52,7 +64,7 @@ const acceptLegalAgreement = async (req) => {
     userId,
     authId,
     userRole: userModelType,
-    documentType,
+    documentType: normalizedDocType,
     documentVersion,
     accepted: true,
     ipAddress,
@@ -123,7 +135,22 @@ const getPartnerContractPreview = async (userId) => {
  * 3. Fetch current active legal document by type (Terms, Privacy, Contract)
  */
 const getActiveDocument = async (type) => {
-  const doc = await LegalDocument.findOne({ type, isActive: true }).sort({
+  const normalizedType =
+    {
+      terms_of_service: "TERMS_AND_CONDITIONS",
+      "terms-of-service": "TERMS_AND_CONDITIONS",
+      terms: "TERMS_AND_CONDITIONS",
+      privacy_policy: "PRIVACY_NOTICE",
+      "privacy-policy": "PRIVACY_NOTICE",
+      privacy: "PRIVACY_NOTICE",
+      partner_agreement: "PARTNER_SERVICE_CONTRACT",
+      "partner-agreement": "PARTNER_SERVICE_CONTRACT",
+    }[type?.toLowerCase()] || type;
+
+  const doc = await LegalDocument.findOne({
+    type: normalizedType,
+    isActive: true,
+  }).sort({
     createdAt: -1,
   });
   if (!doc) {

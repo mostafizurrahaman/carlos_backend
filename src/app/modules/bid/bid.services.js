@@ -336,7 +336,7 @@ const filterBidsByHistory = async (req) => {
 };
 
 const orderDetailsPageFileClaim = async (req) => {
-  const { serviceId } = req.query;
+  const serviceId = req.query.serviceId || req.body.serviceId || req.params.serviceId;
   const { role } = req.user;
 
   let service = await Services.findById(serviceId)
@@ -525,7 +525,7 @@ const getPartnerRatingsSummary = async (partnerId) => {
 // 5. Enhanced Claims Management (Features 10 & 11)
 // =======================================================
 const createFileClaim = async (req) => {
-  const { serviceId } = req.query;
+  const serviceId = req.query.serviceId || req.body.serviceId || req.params.serviceId;
   const { userId, role, emailAuth } = req.user;
   const {
     description,
@@ -609,6 +609,26 @@ const createFileClaim = async (req) => {
     admin: true,
   });
 
+  // Notify confirmed partner if user filed the claim
+  const serviceObj = await Services.findById(serviceId).select("confirmedPartner").lean();
+  if (serviceObj && serviceObj.confirmedPartner) {
+    await NotificationService.sendNotification({
+      title: {
+        eng: "Claim Filed on Service",
+        span: "Reclamación Presentada en el Servicio",
+      },
+      message: {
+        eng: `A ${claimType} claim has been filed for Service #${String(serviceId).slice(-6)}. Payout is temporarily on hold.`,
+        span: `Se ha presentado una reclamación por ${claimType} para el Servicio #${String(serviceId).slice(-6)}. El pago está retenido temporalmente.`,
+      },
+      user: serviceObj.confirmedPartner,
+      userType: "Partner",
+      types: "service",
+      getId: serviceId,
+      serviceId: serviceId,
+    });
+  }
+
   return result;
 };
 
@@ -675,8 +695,8 @@ const resolveAdminClaim = async (req) => {
   await claim.save();
 
   // Keep the service's dispute state in sync with the resolved claim
-  await Services.findOneAndUpdate(
-    { _id: claim.serviceId, activeClaimId: claim._id },
+  await Services.findByIdAndUpdate(
+    claim.serviceId,
     { claimStatus: claim.status },
   );
 
@@ -691,7 +711,7 @@ const resolveAdminClaim = async (req) => {
     metaData: { resolutionType, penaltyOrRefundAmount, decisionNotes },
   });
 
-  // Notify user or partner
+  // Notify claimant
   await NotificationService.sendNotification({
     title: {
       eng: "File Claim Resolved",
@@ -703,8 +723,34 @@ const resolveAdminClaim = async (req) => {
     },
     user: claim.user,
     userType: claim.userType,
-    types: "none",
+    types: "service",
+    getId: claim.serviceId,
+    serviceId: claim.serviceId,
   });
+
+  // Also notify the other party on the service
+  const relatedService = await Services.findById(claim.serviceId).select("user confirmedPartner").lean();
+  if (relatedService) {
+    const otherUser = claim.userType === "User" ? relatedService.confirmedPartner : relatedService.user;
+    const otherRole = claim.userType === "User" ? "Partner" : "User";
+    if (otherUser) {
+      await NotificationService.sendNotification({
+        title: {
+          eng: "Claim Resolved on Service",
+          span: "Reclamación Resuelta en el Servicio",
+        },
+        message: {
+          eng: `The claim for Service #${String(claim.serviceId).slice(-6)} has been resolved (${resolutionType}).`,
+          span: `La reclamación para el Servicio #${String(claim.serviceId).slice(-6)} ha sido resuelta (${resolutionType}).`,
+        },
+        user: otherUser,
+        userType: otherRole,
+        types: "service",
+        getId: claim.serviceId,
+        serviceId: claim.serviceId,
+      });
+    }
+  }
 
   return claim;
 };
@@ -955,7 +1001,7 @@ const applyPenaltyPercent = async (req, options = {}) => {
 };
 
 const statusServicesDetails = async (req) => {
-  const { serviceId } = req.query;
+  const serviceId = req.query.serviceId || req.body.serviceId || req.params.serviceId;
   if (!serviceId) {
     throw new ApiError(400, "Service ID is required.");
   }
@@ -972,7 +1018,22 @@ const statusServicesDetails = async (req) => {
     .populate({
       path: "category",
       select: "_id category",
-    });
+    })
+    .lean();
+
+  if (service && (!service.claimStatus || service.claimStatus === "none")) {
+    const activeClaim = await FileClaim.findOne({ serviceId })
+      .sort({ createdAt: -1 })
+      .select("status")
+      .lean();
+    if (activeClaim) {
+      service.claimStatus = activeClaim.status;
+      service.activeClaimId = activeClaim._id;
+    } else {
+      service.claimStatus = "none";
+      service.activeClaimId = null;
+    }
+  }
 
   return service;
 };
@@ -1089,12 +1150,31 @@ const executeClaimDecision = async (req) => {
   }
 };
 
-// Claims filed by the logged-in user or partner (their own claims only)
+// Claims filed by or involving the logged-in user or partner
 const getMyFileClaims = async (req) => {
-  const { userId } = req.user;
-  return FileClaim.find({ user: userId })
+  const { userId, role } = req.user;
+  let filter = { user: userId };
+  if (role === ENUM_USER_ROLE.PARTNER) {
+    const partnerServices = await Services.find({ confirmedPartner: userId }).select("_id").lean();
+    const serviceIds = partnerServices.map((s) => s._id);
+    filter = {
+      $or: [
+        { user: userId },
+        { serviceId: { $in: serviceIds } },
+      ],
+    };
+  }
+  return FileClaim.find(filter)
+    .select("-adminNotes")
     .sort({ createdAt: -1 })
-    .populate({ path: "serviceId", select: "status claimStatus" });
+    .populate({
+      path: "serviceId",
+      select: "status claimStatus service pickup_address drop_off_address user confirmedPartner winBid createdAt",
+      populate: [
+        { path: "user", select: "name email profile_image" },
+        { path: "confirmedPartner", select: "name email profile_image" },
+      ],
+    });
 };
 
 const BidService = {

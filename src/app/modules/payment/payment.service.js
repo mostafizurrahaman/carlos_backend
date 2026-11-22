@@ -15,6 +15,7 @@ const VariableCount = require("../variable/variable.count");
 const { ServicesService } = require("../services/services.service");
 const { Bids } = require("../bid/bid.model");
 const { NotificationService } = require("../notification/notification.service");
+const { calculateCategoryMarkup } = require("../../../helpers/calculateCategoryMarkup");
 const { default: mongoose } = require("mongoose");
 
 const DOMAIN_URL = process.env.RESET_PASS_UI_LINK;
@@ -190,9 +191,11 @@ const stripeCheckAndUpdateStatusSuccess = async (req, res) => {
 
     let receiverAmount = Number(winBid);
     if (service.mainService === "sell") {
-      const variable = await Variable.findOne();
-      const surcharge = Number(variable?.surcharge || 0);
-      receiverAmount = Number(winBid) - (Number(winBid) * surcharge) / 100;
+      const categoryId = Array.isArray(service.category)
+        ? service.category[0]?._id || service.category[0]
+        : service.category?._id || service.category;
+      const markup = await calculateCategoryMarkup(categoryId, winBid);
+      receiverAmount = Number(winBid) - markup;
     }
 
     await Services.findByIdAndUpdate(

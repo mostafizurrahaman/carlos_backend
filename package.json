@@ -6,6 +6,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node scripts/seed_dummy_data.js",
+    "backfill:claims": "node scripts/backfill_claim_status.js",
     "lint:check": "eslint --ignore-path .eslintignore --ext .js .",
     "lint:fix": "eslint . --fix",
     "prettier:fix": "prettier --write .",

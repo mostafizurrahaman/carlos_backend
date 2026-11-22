@@ -13,7 +13,8 @@ const {
 } = require("../../../utils/enums");
 const Variable = require("../variable/variable.model");
 const { Transaction, StripeAccount } = require("../payment/payment.model");
-const { Bids } = require("../bid/bid.model");
+const { Bids, FileClaim } = require("../bid/bid.model");
+const { calculateCategoryMarkup } = require("../../../helpers/calculateCategoryMarkup");
 const User = require("../user/user.model");
 const { NotificationService } = require("../notification/notification.service");
 const VariableCount = require("../variable/variable.count");
@@ -412,24 +413,48 @@ const getDetails = async (req) => {
     throw new ApiError(404, "Service not found");
   }
 
+  // Ensure claimStatus is always populated accurately even if missing on older documents
+  if (!result.claimStatus || result.claimStatus === "none") {
+    const activeClaim = await FileClaim.findOne({ serviceId }).sort({ createdAt: -1 }).select("status").lean();
+    if (activeClaim) {
+      result.claimStatus = activeClaim.status;
+      result.activeClaimId = activeClaim._id;
+    } else {
+      result.claimStatus = "none";
+      result.activeClaimId = null;
+    }
+  }
+
+
+  const categoryId = Array.isArray(result.category)
+    ? result.category[0]?._id
+    : result.category?._id;
 
   if (role === ENUM_USER_ROLE.USER && result.mainService === 'move') {
     if (result.bids && Array.isArray(result.bids)) {
-      result.bids = result.bids.map((bid) => ({
-        ...bid,
-        price: bid.price
-          + (bid.price * surcharge) / 100,
-      }));
+      result.bids = await Promise.all(
+        result.bids.map(async (bid) => {
+          const markup = await calculateCategoryMarkup(categoryId, bid.price);
+          return {
+            ...bid,
+            price: Number(bid.price) + markup,
+          };
+        })
+      );
     }
   }
 
   if (role === ENUM_USER_ROLE.USER && result.mainService === 'sell') {
     if (result.bids && Array.isArray(result.bids)) {
-      result.bids = result.bids.map((bid) => ({
-        ...bid,
-        price: bid.price
-          - (bid.price * surcharge) / 100,
-      }));
+      result.bids = await Promise.all(
+        result.bids.map(async (bid) => {
+          const markup = await calculateCategoryMarkup(categoryId, bid.price);
+          return {
+            ...bid,
+            price: Number(bid.price) - markup,
+          };
+        })
+      );
     }
   }
 
@@ -792,6 +817,7 @@ const getUserServicesWithinOneHour = async (req) => {
   const query = {
     status: { $in: ["accepted", "pick-up", "in-progress"] },
     paymentStatus: "paid",
+    claimStatus: { $nin: ["pending", "in-progress"] },
     startDate: {
       $lte: oneHourLater,
     }
@@ -828,12 +854,20 @@ const getUserServicesWithinOneHour = async (req) => {
   ]);
 
   if (role === ENUM_USER_ROLE.USER) {
-    return servicesResult.map((data) => ({
-      ...data,
-      winBid: data.mainService === 'move'
-        ? Number(data.winBid) + (Number(data.winBid) * surcharge) / 100
-        : Number(data.winBid) - (Number(data.winBid) * surcharge) / 100,
-    }));
+    return Promise.all(
+      servicesResult.map(async (data) => {
+        const categoryId = Array.isArray(data.category)
+          ? data.category[0]?._id
+          : data.category?._id;
+        const markup = await calculateCategoryMarkup(categoryId, data.winBid);
+        return {
+          ...data,
+          winBid: data.mainService === 'move'
+            ? Number(data.winBid) + markup
+            : Number(data.winBid) - markup,
+        };
+      })
+    );
   }
   console.log("servicesResult", servicesResult.length)
   return servicesResult;
@@ -857,12 +891,21 @@ const filterUserByHistory = async (req) => {
 
   const query = req.query;
 
+  const serviceFilter = {
+    user: userId,
+    service,
+  };
+  if (serviceStatus === "claims" || serviceStatus === "disputed") {
+    serviceFilter.claimStatus = { $in: ["pending", "in-progress"] };
+  } else {
+    serviceFilter.status = serviceStatus;
+    if (["in-progress", "accepted", "pick-up"].includes(serviceStatus)) {
+      serviceFilter.claimStatus = { $nin: ["pending", "in-progress"] };
+    }
+  }
+
   const filtered = new QueryBuilder(
-    Services.find({
-      user: userId,
-      service,
-      status: serviceStatus,
-    })
+    Services.find(serviceFilter)
       .populate({
         path: "user",
         select: "profile_image name email",
@@ -891,21 +934,37 @@ const filterUserByHistory = async (req) => {
   // console.log('result', result)
 
   if (role === ENUM_USER_ROLE.USER && serviceType === "move" && serviceStatus === "accepted") {
-    result = result.map((data) => ({
-      ...data._doc,
-      winBid: data.winBid ? Number(data.winBid)
-        + (Number(data.winBid) * surcharge) / 100
-        : null,
-    }));
+    result = await Promise.all(
+      result.map(async (data) => {
+        const categoryId = Array.isArray(data.category)
+          ? data.category[0]?._id
+          : data.category?._id;
+        const markup = data.winBid
+          ? await calculateCategoryMarkup(categoryId, data.winBid)
+          : 0;
+        return {
+          ...data._doc,
+          winBid: data.winBid ? Number(data.winBid) + markup : null,
+        };
+      })
+    );
   }
 
   if (role === ENUM_USER_ROLE.USER && serviceType === "sell" && serviceStatus === "accepted") {
-    result = result.map((data) => ({
-      ...data._doc,
-      winBid: data.winBid ? Number(data.winBid)
-        - (Number(data.winBid) * surcharge) / 100
-        : null,
-    }));
+    result = await Promise.all(
+      result.map(async (data) => {
+        const categoryId = Array.isArray(data.category)
+          ? data.category[0]?._id
+          : data.category?._id;
+        const markup = data.winBid
+          ? await calculateCategoryMarkup(categoryId, data.winBid)
+          : 0;
+        return {
+          ...data._doc,
+          winBid: data.winBid ? Number(data.winBid) - markup : null,
+        };
+      })
+    );
   }
   const pisoVariable = await VariableCount.getPisoVariable();
   return { result, meta, piso: pisoVariable };
@@ -1079,8 +1138,17 @@ const updateServicesStatusUser = async (req) => {
 
     if (status === "delivery-confirmed") {
       // Hold payout while a claim on this service is still open
-      if (["pending", "in-progress"].includes(service.claimStatus)) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Payout is on hold because a claim is open for this service.");
+      const hasOpenClaim =
+        ["pending", "in-progress"].includes(service.claimStatus) ||
+        (await FileClaim.exists({
+          serviceId: service._id,
+          status: { $in: ["pending", "in-progress"] },
+        }));
+      if (hasOpenClaim) {
+        throw new ApiError(
+          httpStatus.BAD_REQUEST,
+          "Payout is on hold because a claim is open for this service."
+        );
       }
       const amount = Number(transaction.partnerAmount);
       receivedUser.wallet = (receivedUser.wallet || 0) + amount;
@@ -1319,8 +1387,17 @@ const updateSellServicesStatusPartner = async (req) => {
   try {
     if (status === "delivery-confirmed") {
       // Hold payout while a claim on this service is still open
-      if (["pending", "in-progress"].includes(service.claimStatus)) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Payout is on hold because a claim is open for this service.");
+      const hasOpenClaim =
+        ["pending", "in-progress"].includes(service.claimStatus) ||
+        (await FileClaim.exists({
+          serviceId: service._id,
+          status: { $in: ["pending", "in-progress"] },
+        }));
+      if (hasOpenClaim) {
+        throw new ApiError(
+          httpStatus.BAD_REQUEST,
+          "Payout is on hold because a claim is open for this service."
+        );
       }
       const amount = Number(transaction.partnerAmount);
       // console.log("===========amount", amount)
@@ -1541,8 +1618,17 @@ const updateServicesStatus = async (status, serviceId) => {
 
     if (status === "delivery-confirmed") {
       // Hold payout while a claim on this service is still open
-      if (["pending", "in-progress"].includes(service.claimStatus)) {
-        throw new ApiError(httpStatus.BAD_REQUEST, "Payout is on hold because a claim is open for this service.");
+      const hasOpenClaim =
+        ["pending", "in-progress"].includes(service.claimStatus) ||
+        (await FileClaim.exists({
+          serviceId: service._id,
+          status: { $in: ["pending", "in-progress"] },
+        }));
+      if (hasOpenClaim) {
+        throw new ApiError(
+          httpStatus.BAD_REQUEST,
+          "Payout is on hold because a claim is open for this service."
+        );
       }
       const amount = Number(transaction.partnerAmount);
       receivedUser.wallet = (receivedUser.wallet || 0) + amount;

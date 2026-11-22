@@ -130,8 +130,12 @@ const changeContactNumber = async (req) => {
 
 
 const getContactNumber = async () => {
-  return ContactNumber.findOne({})
-}
+  let contact = await ContactNumber.findOne({});
+  if (!contact) {
+    contact = await ContactNumber.create({ contact: "+52 55 1234 5678" });
+  }
+  return contact;
+};
 
 const getPisoVariable = async () => {
   const result = await Variable.findOne({})
