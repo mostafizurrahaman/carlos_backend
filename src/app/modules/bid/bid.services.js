@@ -22,6 +22,7 @@ const {
   getUserFacingPrice,
 } = require("../../../helpers/calculateCategoryMarkup");
 const { recordTraceability } = require("../../../helpers/traceabilityLogger");
+const { getStripeRefundUnits } = require("../../../helpers/stripeRefundAmount");
 const {
   OPEN_CLAIM_STATUSES,
   syncServiceClaimStatus,
@@ -1217,12 +1218,15 @@ const executeClaimDecision = async (req) => {
       if (transaction.paymentMethod !== "Stripe") {
         throw new ApiError(400, "Automatic refund is supported only for Stripe payments");
       }
-      if (amount > Number(transaction.amount)) {
-        throw new ApiError(400, "Refund amount is more than the amount paid");
-      }
+      // Decision amount is USD; Stripe refunds in the currency that was charged
+      const refundUnits = await getStripeRefundUnits({
+        paymentIntentId: transaction.transactionId,
+        amountUsd: amount,
+        paidUsd: transaction.amount,
+      });
       const refund = await stripe.refunds.create({
         payment_intent: transaction.transactionId,
-        amount: Math.round(amount * 100),
+        amount: refundUnits,
       });
       reference = refund.id;
     } else {

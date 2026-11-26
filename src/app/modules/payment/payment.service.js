@@ -16,6 +16,7 @@ const { ServicesService } = require("../services/services.service");
 const { Bids } = require("../bid/bid.model");
 const { NotificationService } = require("../notification/notification.service");
 const { calculateCategoryMarkup, getUserFacingPrice } = require("../../../helpers/calculateCategoryMarkup");
+const { getStripeRefundUnits } = require("../../../helpers/stripeRefundAmount");
 const { default: mongoose } = require("mongoose");
 
 const DOMAIN_URL = process.env.RESET_PASS_UI_LINK;
@@ -108,9 +109,10 @@ const createCheckoutSessionStripe = async (req) => {
     }
 
     // Amount comes from the DB, never from the app's "price".
+    // Bid prices are stored in USD (the app and dashboard convert them to MXN for display).
     // move: customer pays bid + markup (same number as Offers / order-details).
     // sell: buying partner pays their bid; the seller gets bid - markup on success.
-    const chargeMxn =
+    const chargeUsd =
       service.mainService === "move"
         ? await getUserFacingPrice(service, bidDetails.price)
         : Number(bidDetails.price);
@@ -118,10 +120,10 @@ const createCheckoutSessionStripe = async (req) => {
     const normalizedCurrency = String(currency).toLowerCase();
     let chargeAmount;
     if (normalizedCurrency === "mxn") {
-      chargeAmount = chargeMxn;
+      const { pesoCost } = await VariableCount.convertDollarToPeso(chargeUsd);
+      chargeAmount = Math.round(pesoCost * 100) / 100;
     } else if (normalizedCurrency === "usd") {
-      const { dollarCost } = await VariableCount.convertPesoToDollar(chargeMxn);
-      chargeAmount = dollarCost;
+      chargeAmount = chargeUsd;
     } else {
       throw new ApiError(httpStatus.BAD_REQUEST, "Unsupported currency.");
     }
@@ -375,10 +377,15 @@ const stripeRefundPayment = async (req, res) => {
       throw new ApiError(httpStatus.NOT_FOUND, "Original transaction not found for this refund.");
     }
 
+    // "amount" is USD (winBid); Stripe refunds in the currency that was charged
+    const refundUnits = await getStripeRefundUnits({
+      paymentIntentId: saleId,
+      amountUsd: amount,
+      paidUsd: originalTx.amount,
+    });
     const refund = await stripe.refunds.create({
       payment_intent: saleId,
-      amount: Math.round(amount * 100),
-      // currency: 'usd',
+      amount: refundUnits,
     });
     service.paymentStatus = 'refunded';
     await service.save();
@@ -392,7 +399,8 @@ const stripeRefundPayment = async (req, res) => {
       receiveUserType: originalTx.receiveUserType,
       isFinish: true,
       paymentMethod: 'Stripe',
-      amount: Number(refund.amount) / 100,
+      // Keep transactions in USD like the original payment; refund.amount is in the charge currency
+      amount: Number(amount),
       paymentStatus: "Refunded",
       transactionId: refund.id,
       paymentDetails: {
