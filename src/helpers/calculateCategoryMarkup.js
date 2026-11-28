@@ -3,6 +3,9 @@ const Category = require("../app/modules/category/category.model");
 const Variable = require("../app/modules/variable/variable.model");
 
 /**
+ * Currency: basePrice / winBid / bid prices are stored in USD. Convert to MXN
+ * only when charging Stripe in MXN (see payment.service createCheckoutSessionStripe).
+ *
  * Markup (surcharge) rule. Every screen and the Stripe charge use this file,
  * so the Offers price, the Payment price and the charged amount always match.
  *
